@@ -1,0 +1,461 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>IP Location Tracker</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height: 100vh;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      padding: 20px;
+    }
+
+    .container {
+      background: white;
+      border-radius: 20px;
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+      padding: 40px;
+      max-width: 600px;
+      width: 100%;
+      animation: slideIn 0.5s ease-out;
+    }
+
+    @keyframes slideIn {
+      from {
+        opacity: 0;
+        transform: translateY(-30px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    h1 {
+      color: #333;
+      text-align: center;
+      margin-bottom: 10px;
+      font-size: 28px;
+    }
+
+    .subtitle {
+      text-align: center;
+      color: #666;
+      margin-bottom: 30px;
+      font-size: 14px;
+    }
+
+    .status-box {
+      background: #f8f9fa;
+      border-radius: 10px;
+      padding: 20px;
+      margin-bottom: 20px;
+      border-left: 4px solid #667eea;
+    }
+
+    .status-box.loading {
+      border-left-color: #ffc107;
+    }
+
+    .status-box.success {
+      border-left-color: #28a745;
+      background: #d4edda;
+    }
+
+    .status-box.error {
+      border-left-color: #dc3545;
+      background: #f8d7da;
+    }
+
+    .status-box.warning {
+      border-left-color: #ffc107;
+      background: #fff3cd;
+    }
+
+    .status-message {
+      font-size: 16px;
+      color: #333;
+      margin-bottom: 10px;
+      font-weight: 500;
+    }
+
+    .status-details {
+      font-size: 14px;
+      color: #666;
+      line-height: 1.6;
+    }
+
+    .info-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 15px;
+      margin-top: 20px;
+    }
+
+    .info-item {
+      background: white;
+      padding: 15px;
+      border-radius: 8px;
+      border: 1px solid #e0e0e0;
+    }
+
+    .info-label {
+      font-size: 12px;
+      color: #999;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 5px;
+    }
+
+    .info-value {
+      font-size: 16px;
+      color: #333;
+      font-weight: 600;
+      word-break: break-all;
+    }
+
+    .location-badge {
+      display: inline-block;
+      padding: 8px 16px;
+      border-radius: 20px;
+      font-weight: 600;
+      font-size: 18px;
+      margin: 10px 0;
+    }
+
+    .location-badge.home {
+      background: #d4edda;
+      color: #155724;
+    }
+
+    .location-badge.office {
+      background: #cfe2ff;
+      color: #084298;
+    }
+
+    .location-badge.unknown {
+      background: #fff3cd;
+      color: #856404;
+    }
+
+    .btn {
+      width: 100%;
+      padding: 15px 30px;
+      font-size: 16px;
+      font-weight: 600;
+      border: none;
+      border-radius: 10px;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .btn-primary {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+    }
+
+    .btn-primary:hover:not(:disabled) {
+      transform: translateY(-2px);
+      box-shadow: 0 10px 20px rgba(102, 126, 234, 0.4);
+    }
+
+    .btn:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+
+    .spinner {
+      display: inline-block;
+      width: 20px;
+      height: 20px;
+      border: 3px solid rgba(255, 255, 255, 0.3);
+      border-radius: 50%;
+      border-top-color: white;
+      animation: spin 1s ease-in-out infinite;
+      margin-right: 10px;
+      vertical-align: middle;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    .confidence-indicator {
+      display: inline-block;
+      padding: 4px 12px;
+      border-radius: 12px;
+      font-size: 12px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .confidence-high {
+      background: #d4edda;
+      color: #155724;
+    }
+
+    .confidence-medium {
+      background: #fff3cd;
+      color: #856404;
+    }
+
+    .confidence-low {
+      background: #f8d7da;
+      color: #721c24;
+    }
+
+    .footer {
+      text-align: center;
+      margin-top: 30px;
+      padding-top: 20px;
+      border-top: 1px solid #e0e0e0;
+      color: #999;
+      font-size: 12px;
+    }
+
+    .icon {
+      font-size: 48px;
+      text-align: center;
+      margin-bottom: 20px;
+    }
+
+    @media (max-width: 600px) {
+      .container {
+        padding: 30px 20px;
+      }
+
+      h1 {
+        font-size: 24px;
+      }
+
+      .info-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="icon">📍</div>
+    <h1>IP Location Tracker</h1>
+    <p class="subtitle">Automatic work location detection</p>
+
+    <div id="statusBox" class="status-box">
+      <div class="status-message">Ready to check your location</div>
+      <div class="status-details">Click the button below to automatically detect and log your current work location.</div>
+    </div>
+
+    <div id="resultBox" style="display: none;"></div>
+
+    <button id="checkBtn" class="btn btn-primary" onclick="checkLocation()">
+      📍 Check My Location Now
+    </button>
+
+    <div class="footer">
+      Powered by IP Geolocation API • Privacy-friendly tracking
+    </div>
+  </div>
+
+  <script>
+    let isChecking = false;
+
+    async function checkLocation() {
+      if (isChecking) return;
+      
+      isChecking = true;
+      const btn = document.getElementById('checkBtn');
+      const statusBox = document.getElementById('statusBox');
+      const resultBox = document.getElementById('resultBox');
+      
+      // Update button
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spinner"></span>Detecting Location...';
+      
+      // Update status
+      statusBox.className = 'status-box loading';
+      statusBox.innerHTML = `
+        <div class="status-message">🔍 Detecting your location...</div>
+        <div class="status-details">Please wait while we identify your network and location.</div>
+      `;
+      resultBox.style.display = 'none';
+
+      try {
+        // Get IP information from external API
+        const ipData = await getIPInfo();
+        
+        if (!ipData) {
+          throw new Error('Could not retrieve IP information');
+        }
+
+        // Send to Google Apps Script for processing
+        google.script.run
+          .withSuccessHandler(handleSuccess)
+          .withFailureHandler(handleError)
+          .handleAutomaticLocationCheck(ipData);
+
+      } catch (error) {
+        handleError(error.message || 'Failed to detect location');
+      }
+    }
+
+    async function getIPInfo() {
+      try {
+        // Using ip-api.com (free, no API key required)
+        const response = await fetch('http://ip-api.com/json/');
+        const data = await response.json();
+        
+        if (data.status === 'success') {
+          return {
+            ip: data.query,
+            city: data.city,
+            region: data.regionName,
+            country: data.country,
+            isp: data.isp,
+            org: data.org,
+            timezone: data.timezone
+          };
+        }
+        
+        // Fallback to ipapi.co
+        const response2 = await fetch('https://ipapi.co/json/');
+        const data2 = await response2.json();
+        
+        return {
+          ip: data2.ip,
+          city: data2.city,
+          region: data2.region,
+          country: data2.country_name,
+          isp: data2.org,
+          org: data2.org,
+          timezone: data2.timezone
+        };
+      } catch (error) {
+        console.error('Error fetching IP info:', error);
+        return null;
+      }
+    }
+
+    function handleSuccess(result) {
+      const btn = document.getElementById('checkBtn');
+      const statusBox = document.getElementById('statusBox');
+      const resultBox = document.getElementById('resultBox');
+      
+      btn.disabled = false;
+      btn.innerHTML = '📍 Check My Location Now';
+      isChecking = false;
+
+      if (!result.businessHours) {
+        statusBox.className = 'status-box warning';
+        statusBox.innerHTML = `
+          <div class="status-message">⏰ Outside Business Hours</div>
+          <div class="status-details">${result.message}</div>
+        `;
+        return;
+      }
+
+      if (result.success) {
+        statusBox.className = 'status-box success';
+        statusBox.innerHTML = `
+          <div class="status-message">✅ Location Logged Successfully!</div>
+          <div class="status-details">Your location has been recorded in the tracking spreadsheet.</div>
+        `;
+
+        // Determine location class
+        let locationClass = 'unknown';
+        if (result.location.toLowerCase().includes('home')) {
+          locationClass = 'home';
+        } else if (result.location.toLowerCase().includes('office')) {
+          locationClass = 'office';
+        }
+
+        // Determine confidence class
+        let confidenceClass = 'confidence-low';
+        if (result.confidence === 'high') {
+          confidenceClass = 'confidence-high';
+        } else if (result.confidence === 'medium') {
+          confidenceClass = 'confidence-medium';
+        }
+
+        resultBox.style.display = 'block';
+        resultBox.innerHTML = `
+          <div style="text-align: center; margin: 20px 0;">
+            <div class="location-badge ${locationClass}">
+              ${locationClass === 'home' ? '🏠' : locationClass === 'office' ? '🏢' : '📍'} ${result.location}
+            </div>
+            <div style="margin-top: 10px;">
+              <span class="${confidenceClass}">${result.confidence} confidence</span>
+            </div>
+          </div>
+          
+          <div class="info-grid">
+            <div class="info-item">
+              <div class="info-label">IP Address</div>
+              <div class="info-value">${result.ip || 'N/A'}</div>
+            </div>
+            <div class="info-item">
+              <div class="info-label">ISP/Provider</div>
+              <div class="info-value">${result.isp || 'N/A'}</div>
+            </div>
+            <div class="info-item">
+              <div class="info-label">City</div>
+              <div class="info-value">${result.city || 'N/A'}</div>
+            </div>
+            <div class="info-item">
+              <div class="info-label">Match Method</div>
+              <div class="info-value">${result.matchType || 'N/A'}</div>
+            </div>
+          </div>
+          
+          <div style="margin-top: 15px; padding: 15px; background: #f8f9fa; border-radius: 8px; font-size: 13px; color: #666;">
+            <strong>Timestamp:</strong> ${new Date(result.timestamp).toLocaleString()}
+          </div>
+        `;
+      } else {
+        statusBox.className = 'status-box error';
+        statusBox.innerHTML = `
+          <div class="status-message">❌ Error</div>
+          <div class="status-details">${result.message}</div>
+        `;
+      }
+    }
+
+    function handleError(error) {
+      const btn = document.getElementById('checkBtn');
+      const statusBox = document.getElementById('statusBox');
+      
+      btn.disabled = false;
+      btn.innerHTML = '📍 Check My Location Now';
+      isChecking = false;
+
+      statusBox.className = 'status-box error';
+      statusBox.innerHTML = `
+        <div class="status-message">❌ Error Detecting Location</div>
+        <div class="status-details">${error}</div>
+      `;
+      
+      console.error('Error:', error);
+    }
+
+    // Auto-check on page load (optional)
+    window.addEventListener('load', function() {
+      // Uncomment the line below to automatically check location when page loads
+      // setTimeout(checkLocation, 1000);
+    });
+  </script>
+</body>
+</html>
