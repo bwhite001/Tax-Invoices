@@ -1,0 +1,394 @@
+
+╔════════════════════════════════════════════════════════════════╗
+║   BANK STATEMENT EXTRACTOR & EXPENSE CATALOGER - USER GUIDE   ║
+║              For Australian Financial Institutions              ║
+╚════════════════════════════════════════════════════════════════╝
+
+TABLE OF CONTENTS
+═════════════════
+1. Quick Start Guide
+2. Downloading Statements from Each Bank
+3. Running the Scripts
+4. Understanding the Output
+5. Tips & Best Practices
+6. Troubleshooting
+
+
+═══════════════════════════════════════════════════════════════════
+1. QUICK START GUIDE
+═══════════════════════════════════════════════════════════════════
+
+STEP 1: Install Python (if not already installed)
+   - Download from: https://www.python.org/downloads/
+   - Choose Python 3.8 or higher
+   - ✓ During installation, check "Add Python to PATH"
+
+STEP 2: Install Java (required for PDF processing)
+   - Download from: https://www.java.com/download/
+   - Verify installation: Open Command Prompt and type: java -version
+
+STEP 3: Install Required Packages
+   - Open Command Prompt in the script folder
+   - Run: pip install -r requirements.txt
+   - Or use quick_start.bat for automated setup
+
+STEP 4: Download Your Bank Statements
+   - See Section 2 for specific instructions per bank
+   - Save files to the 'statements' folder
+
+STEP 5: Run the Extractor
+   - Command: python bank_statement_extractor.py
+   - Follow the prompts
+
+STEP 6: Run the Cataloger
+   - Command: python expense_cataloger.py
+   - View results in the 'extracted' folder
+
+
+═══════════════════════════════════════════════════════════════════
+2. DOWNLOADING STATEMENTS FROM EACH BANK
+═══════════════════════════════════════════════════════════════════
+
+┌───────────────────────────────────────────────────────────────┐
+│ SUNCORP BANK                                                   │
+└───────────────────────────────────────────────────────────────┘
+
+OPTION A: CSV Download (Recommended)
+   1. Log into Suncorp Internet Banking
+   2. Select your account
+   3. Click 'Transaction History' in left menu
+   4. Select date range (max 364 days)
+   5. Click 'Download Transactions'
+   6. Choose 'CSV' format
+   7. Save file with 'suncorp' in the name
+
+OPTION B: PDF Statements
+   1. Log into Internet Banking
+   2. Select 'eStatements' from left menu
+   3. Download desired statement
+   4. Save with 'suncorp' in the name
+
+FILE NAMING: suncorp_2024_october.csv or suncorp_statement.pdf
+
+
+┌───────────────────────────────────────────────────────────────┐
+│ BEYOND BANK AUSTRALIA                                          │
+└───────────────────────────────────────────────────────────────┘
+
+Transaction Listing (PDF):
+   1. Log into Beyond Bank Internet Banking
+   2. Go to 'Accounts' tab
+   3. Select 'Create Transaction Listing'
+   4. Choose your account
+   5. Select date range (up to 1 year)
+   6. Click 'Generate'
+   7. Download PDF
+   8. Save with 'beyond' in the name
+
+FILE NAMING: beyond_bank_oct_2024.pdf or beyondbank_transactions.pdf
+
+NOTE: Beyond Bank primarily provides PDF format. CSV export may not
+      be available for all account types.
+
+
+┌───────────────────────────────────────────────────────────────┐
+│ ZIP MONEY / ZIP PAY                                            │
+└───────────────────────────────────────────────────────────────┘
+
+OPTION A: Dashboard Export (Recommended)
+   1. Log into Zip Dashboard
+   2. Click 'Settings' > 'Disbursements'
+   3. Click 'Create custom report'
+   4. Enter date range
+   5. Click 'Create' then 'Click here' to download
+   6. Save CSV file with 'zip' in the name
+
+OPTION B: Monthly Statements (PDF)
+   - Via App:
+     1. Open Zip app
+     2. Tap 'Home' > Select account
+     3. Tap icon in top right
+     4. Tap 'View my Zip statements'
+
+   - Via Website:
+     1. Log into Zip website
+     2. Select account
+     3. Click three lines (menu)
+     4. Click 'Statements'
+     5. Download PDF
+
+FILE NAMING: zip_october_2024.csv or zip_statement.pdf
+
+
+┌───────────────────────────────────────────────────────────────┐
+│ AFTERPAY                                                       │
+└───────────────────────────────────────────────────────────────┘
+
+Settlement/Reconciliation Report (CSV):
+   1. Log into Afterpay Business Hub
+   2. Select 'Reconciliation' tab
+   3. Click 'Export Report' button
+   4. Choose report type:
+      - Detail (all transactions)
+      - Summary by Store (aggregated)
+   5. Select date range
+   6. Click 'Download'
+   7. Save CSV with 'afterpay' in the name
+
+Consumer Statement (PDF):
+   - Via App:
+     1. Log into Afterpay app
+     2. Tap 'My Afterpay' tab
+     3. Scroll to 'Settings'
+     4. Select 'Statements'
+     5. Download desired statement
+
+FILE NAMING: afterpay_settlement_oct_2024.csv or afterpay_statement.pdf
+
+
+═══════════════════════════════════════════════════════════════════
+3. RUNNING THE SCRIPTS
+═══════════════════════════════════════════════════════════════════
+
+┌───────────────────────────────────────────────────────────────┐
+│ SCRIPT 1: bank_statement_extractor.py                         │
+└───────────────────────────────────────────────────────────────┘
+
+PURPOSE: Extract transaction data from bank statement files
+
+COMMAND:
+   python bank_statement_extractor.py
+
+WHAT IT DOES:
+   ✓ Scans input folder for bank statement files
+   ✓ Identifies bank based on filename keywords
+   ✓ Extracts transactions from CSV and PDF files
+   ✓ Standardizes data format across all banks
+   ✓ Saves separate CSV files for each bank
+
+INPUT:
+   - Folder containing your downloaded statements
+   - Default: 'statements' folder
+
+OUTPUT:
+   - suncorp_transactions.csv
+   - beyondbank_transactions.csv
+   - zip_transactions.csv
+   - afterpay_transactions.csv
+   - Saved in 'extracted' folder (or your chosen output folder)
+
+
+┌───────────────────────────────────────────────────────────────┐
+│ SCRIPT 2: expense_cataloger.py                                │
+└───────────────────────────────────────────────────────────────┘
+
+PURPOSE: Consolidate and categorize all transactions
+
+COMMAND:
+   python expense_cataloger.py
+
+WHAT IT DOES:
+   ✓ Loads all extracted transaction CSVs
+   ✓ Consolidates into single master list
+   ✓ Automatically categorizes transactions
+   ✓ Generates summary statistics
+   ✓ Creates multiple output formats
+   ✓ Optionally creates filtered views
+
+INPUT:
+   - Folder with extracted CSV files
+   - Default: 'extracted' folder
+
+OUTPUT:
+   - expense_catalog.csv (master file)
+   - expense_catalog.xlsx (Excel with summaries)
+   - monthly_expenses_by_category.csv
+   - expenses_only.csv
+   - income_only.csv
+   - category_*.csv (optional filtered views)
+
+
+═══════════════════════════════════════════════════════════════════
+4. UNDERSTANDING THE OUTPUT
+═══════════════════════════════════════════════════════════════════
+
+┌───────────────────────────────────────────────────────────────┐
+│ EXPENSE CATALOG COLUMNS                                        │
+└───────────────────────────────────────────────────────────────┘
+
+date           - Transaction date (YYYY-MM-DD format)
+bank           - Source bank (Suncorp/Beyond Bank/Zip/Afterpay)
+description    - Transaction description/merchant name
+amount         - Transaction amount (negative=expense, positive=income)
+category       - Auto-assigned expense category
+type           - Income or Expense
+balance        - Account balance (if available)
+source_file    - Original statement filename
+
+
+┌───────────────────────────────────────────────────────────────┐
+│ EXPENSE CATEGORIES                                             │
+└───────────────────────────────────────────────────────────────┘
+
+Groceries        - Coles, Woolworths, ALDI, IGA, supermarkets
+Dining           - Restaurants, cafes, Uber Eats, Menulog
+Transport        - Fuel, public transport, Uber, parking, tolls
+Utilities        - Electricity, gas, water, internet, phone
+Entertainment    - Netflix, Spotify, streaming, games
+Shopping         - Amazon, Kmart, Bunnings, JB Hi-Fi
+Health           - Pharmacy, doctor, medical, dental
+Insurance        - All insurance types
+Subscription     - Recurring memberships and fees
+Banking          - Bank fees, ATM, interest charges
+Income           - Salary, wages, deposits, refunds
+Transfer         - Inter-account transfers, BPAY
+Other            - Unmatched transactions
+
+
+┌───────────────────────────────────────────────────────────────┐
+│ EXCEL SUMMARY SHEET                                            │
+└───────────────────────────────────────────────────────────────┘
+
+The Excel file includes a Summary sheet with:
+   • Total transaction count
+   • Total income and expenses
+   • Breakdown by category
+   • Top spending categories
+
+
+═══════════════════════════════════════════════════════════════════
+5. TIPS & BEST PRACTICES
+═══════════════════════════════════════════════════════════════════
+
+DOWNLOADING STATEMENTS:
+   ✓ Download 12 months of data for complete annual view
+   ✓ Use CSV format when available (more reliable than PDF)
+   ✓ Include bank name in filename for easier processing
+   ✓ Keep original files as backup
+
+FILE ORGANIZATION:
+   ✓ Create separate folders for each year
+   ✓ Name files consistently: [bank]_[month]_[year].csv
+   ✓ Keep raw downloads separate from processed data
+
+PROCESSING:
+   ✓ Process statements from one bank at a time first
+   ✓ Verify extraction accuracy before cataloging
+   ✓ Review 'Other' category and reclassify if needed
+   ✓ Check date ranges match your expectations
+
+CUSTOMIZATION:
+   ✓ Edit categories to match your expense tracking needs
+   ✓ Add custom keywords for better auto-categorization
+   ✓ Adjust date formats if your bank uses non-standard format
+
+TAX & ACCOUNTING:
+   ✓ Keep original statements for tax records
+   ✓ Use cataloged data to identify deductible expenses
+   ✓ Export category files for specific expense types
+   ✓ Consult tax professional for deduction eligibility
+
+
+═══════════════════════════════════════════════════════════════════
+6. TROUBLESHOOTING
+═══════════════════════════════════════════════════════════════════
+
+┌───────────────────────────────────────────────────────────────┐
+│ COMMON ISSUES AND SOLUTIONS                                    │
+└───────────────────────────────────────────────────────────────┘
+
+ISSUE: "No CSV files found"
+SOLUTION: 
+   - Check files are in correct folder
+   - Verify filename contains bank keyword (suncorp, beyond, zip, afterpay)
+   - Ensure files have .csv or .pdf extension
+
+ISSUE: "Error extracting PDF"
+SOLUTIONS:
+   - Verify Java is installed: java -version
+   - Check PDF is not password-protected
+   - If encrypted, decrypt in Adobe Reader first
+   - Some scanned PDFs won't extract - use CSV instead
+
+ISSUE: "Cannot parse date"
+SOLUTIONS:
+   - Check date format in original statement
+   - Add format to _standardize_dates() in expense_cataloger.py
+   - Common Australian formats:
+     • 31/10/2024 (day/month/year)
+     • 31-10-2024
+     • 31 Oct 2024
+
+ISSUE: "Missing transactions"
+SOLUTIONS:
+   - Verify date range in downloaded statement
+   - Check for multi-page PDFs
+   - Some banks split large statements - download separately
+   - Compare transaction count in script output vs bank statement
+
+ISSUE: "Wrong category assigned"
+SOLUTIONS:
+   - Edit CATEGORIES dictionary in expense_cataloger.py
+   - Add specific merchant keywords
+   - Manually update category in final CSV
+   - Re-run cataloger after changes
+
+ISSUE: "Import errors / Missing packages"
+SOLUTIONS:
+   - Run: pip install -r requirements.txt
+   - If specific package fails:
+     • pip install pandas
+     • pip install pdfplumber
+     • pip install openpyxl
+   - Check Python version: python --version (need 3.8+)
+
+
+┌───────────────────────────────────────────────────────────────┐
+│ BANK-SPECIFIC TROUBLESHOOTING                                  │
+└───────────────────────────────────────────────────────────────┘
+
+SUNCORP:
+   - CSV is most reliable format
+   - PDF may have layout variations
+   - Transaction history limited to 364 days per download
+
+BEYOND BANK:
+   - Only provides PDF transaction listings
+   - Listings have 1-year limit from current date
+   - Not a replacement for official statements
+
+ZIP:
+   - Dashboard CSV export is most complete
+   - Statement PDFs may have limited transaction details
+   - Ensure you're downloading settlement/reconciliation data
+
+AFTERPAY:
+   - Business Hub vs consumer app have different formats
+   - Use reconciliation reports for complete data
+   - CSV includes fees which may need separate tracking
+
+
+┌───────────────────────────────────────────────────────────────┐
+│ GETTING MORE HELP                                              │
+└───────────────────────────────────────────────────────────────┘
+
+Bank Support:
+   • Suncorp: 13 11 55 | suncorpbank.com.au/help-support
+   • Beyond Bank: 13 25 85 | beyondbank.com.au/help-and-contact
+   • Zip: help.zip.co
+   • Afterpay: help.afterpay.com
+
+Python/Technical:
+   • Python docs: docs.python.org
+   • Pandas: pandas.pydata.org
+   • PDFPlumber: github.com/jsvine/pdfplumber
+
+
+═══════════════════════════════════════════════════════════════════
+                      END OF USER GUIDE
+═══════════════════════════════════════════════════════════════════
+
+Version 1.0 - October 2024
+For Australian bank statement processing
+
+Remember: Keep your financial data secure and private!
