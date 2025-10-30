@@ -21,6 +21,7 @@ opencv-python>=4.8.0
 # AI/LLM Integration
 requests>=2.31.0
 openai>=1.0.0
+python-dotenv>=1.0.0
 
 # Data Processing & Export
 pandas>=2.1.0

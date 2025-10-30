@@ -39,9 +39,25 @@ class InvoiceCataloger:
         self.document_extractor = DocumentExtractor()
         self.email_extractor = EmailExtractor()
         
+        # Initialize LLM processor based on API provider
         self.llm_processor = LLMProcessor(
+            api_provider=config.api_provider,
+            # LM Studio params
             endpoint=config.lm_studio_endpoint,
             model=config.lm_studio_model,
+            # OpenAI params
+            openai_api_key=config.openai_api_key,
+            openai_model=config.openai_model,
+            openai_api_base=config.openai_api_base,
+            # OpenRouter params
+            openrouter_api_key=config.openrouter_api_key,
+            openrouter_model=config.openrouter_model,
+            openrouter_api_base=config.openrouter_api_base,
+            openrouter_app_name=config.openrouter_app_name,
+            # Custom prompt
+            use_custom_prompt=config.use_custom_prompt,
+            custom_extraction_prompt=config.custom_extraction_prompt,
+            # Common params
             temperature=config.temperature,
             max_tokens=config.max_tokens,
             timeout=config.timeout_seconds,
@@ -65,6 +81,7 @@ class InvoiceCataloger:
         """Check if all prerequisites are met"""
         self.logger.section("CHECKING PREREQUISITES")
         self.logger.info(f"Processing Financial Year: FY{self.config.financial_year}")
+        self.logger.info(f"API Provider: {self.config.api_provider.upper()}")
         
         # Validate financial year
         if not self.config.validate_financial_year():
@@ -84,22 +101,73 @@ class InvoiceCataloger:
         self.config.ensure_directories()
         self.logger.success(f"Output folder ready: {self.config.output_folder}")
         
-        # Check LM Studio connection
-        self.logger.info("Testing LM Studio connection...")
-        success, message = LLMProcessor.test_connection(
-            self.config.lm_studio_endpoint,
-            self.config.lm_studio_models_endpoint
-        )
-        
-        if not success:
-            self.logger.error(message)
-            self.logger.error("Please ensure:")
-            self.logger.error("  1. LM Studio is running")
-            self.logger.error("  2. A model is loaded (e.g., Mistral 7B)")
-            self.logger.error("  3. Developer Server is started")
+        # Validate API configuration
+        api_valid, api_message = self.config.validate_api_config()
+        if not api_valid:
+            self.logger.error(api_message)
+            self.logger.error("Please check your .env file configuration")
             return False
         
+        self.logger.success(api_message)
+        
+        # Test API connection based on provider
+        self.logger.info(f"Testing {self.config.api_provider.upper()} connection...")
+        
+        if self.config.api_provider == "lmstudio":
+            success, message = LLMProcessor.test_connection(
+                "lmstudio",
+                endpoint=self.config.lm_studio_endpoint,
+                models_endpoint=self.config.lm_studio_models_endpoint
+            )
+            
+            if not success:
+                self.logger.error(message)
+                self.logger.error("Please ensure:")
+                self.logger.error("  1. LM Studio is running")
+                self.logger.error("  2. A model is loaded (e.g., Mistral 7B)")
+                self.logger.error("  3. Developer Server is started")
+                return False
+        
+        elif self.config.api_provider == "openai":
+            success, message = LLMProcessor.test_connection(
+                "openai",
+                api_key=self.config.openai_api_key,
+                model=self.config.openai_model,
+                api_base=self.config.openai_api_base
+            )
+            
+            if not success:
+                self.logger.error(message)
+                self.logger.error("Please ensure:")
+                self.logger.error("  1. OPENAI_API_KEY is set in .env file")
+                self.logger.error("  2. API key is valid and has credits")
+                self.logger.error("  3. Model name is correct")
+                return False
+        
+        elif self.config.api_provider == "openrouter":
+            success, message = LLMProcessor.test_connection(
+                "openrouter",
+                api_key=self.config.openrouter_api_key,
+                model=self.config.openrouter_model,
+                api_base=self.config.openrouter_api_base,
+                app_name=self.config.openrouter_app_name
+            )
+            
+            if not success:
+                self.logger.error(message)
+                self.logger.error("Please ensure:")
+                self.logger.error("  1. OPENROUTER_API_KEY is set in .env file")
+                self.logger.error("  2. API key is valid and has credits")
+                self.logger.error("  3. Model name is correct")
+                return False
+        
         self.logger.success(message)
+        
+        # Show custom prompt status
+        if self.config.use_custom_prompt:
+            self.logger.info("Using custom extraction prompt")
+        else:
+            self.logger.info("Using default optimized extraction prompt")
         
         # Check extraction dependencies
         pdf_ok, pdf_missing = PDFExtractor.check_dependencies()
