@@ -33,6 +33,7 @@
 # ============================================
 param(
     [switch]$CheckOnly,
+    [switch]$RetryFailed,
     [string]$FinancialYear = "2024-2025"  # Format: YYYY-YYYY (e.g., "2024-2025", "2023-2024")
 )
 
@@ -58,6 +59,8 @@ $FYFolder = "FY$FinancialYear"
 $InvoiceFolderPath = Join-Path $BasePath $FYFolder
 $OutputFolderPath = Join-Path $InvoiceFolderPath "Processed"
 $LogFolderPath = Join-Path $OutputFolderPath "Logs"
+$CachePath = Join-Path $OutputFolderPath "cache.json"
+$FailedFilesPath = Join-Path $OutputFolderPath "failed_files.json"
 
 $Config = @{
     # LM Studio Configuration
@@ -74,6 +77,8 @@ $Config = @{
     InvoiceFolder = $InvoiceFolderPath
     OutputFolder = $OutputFolderPath
     LogFolder = $LogFolderPath
+    CachePath = $CachePath
+    FailedFilesPath = $FailedFilesPath
     
     # File Types to Process
     FileExtensions = @('pdf', 'png', 'jpg', 'jpeg', 'gif', 'doc', 'docx', 'xls', 'xlsx', 'eml', 'msg')
@@ -97,6 +102,8 @@ $Config = @{
     ProcessInBatches = $false
     BatchSize = 5
     DeleteProcessedFiles = $false  # Keep originals
+    MoveProcessedFiles = $true  # Move to Processed folder
+    MaxRetryAttempts = 3  # Maximum retry attempts for failed files
 }
 
 # ============================================
@@ -134,6 +141,207 @@ function Get-ElapsedTime {
     param([datetime]$StartTime)
     $elapsed = (Get-Date) - $StartTime
     return "{0:d2}h:{1:d2}m:{2:d2}s" -f $elapsed.Hours, $elapsed.Minutes, $elapsed.Seconds
+}
+
+# ============================================
+# CACHE AND FILE MANAGEMENT FUNCTIONS
+# ============================================
+
+function Get-FileHash-MD5 {
+    param([string]$FilePath)
+    
+    try {
+        $md5 = [System.Security.Cryptography.MD5]::Create()
+        $stream = [System.IO.File]::OpenRead($FilePath)
+        $hash = [System.BitConverter]::ToString($md5.ComputeHash($stream))
+        $stream.Close()
+        return $hash.Replace("-", "").ToLower()
+    }
+    catch {
+        Write-Log "Error calculating file hash: $_" "ERROR"
+        return $null
+    }
+}
+
+function Load-Cache {
+    if (Test-Path $Config.CachePath) {
+        try {
+            $cacheContent = Get-Content -Path $Config.CachePath -Raw -ErrorAction Stop
+            $cache = $cacheContent | ConvertFrom-Json
+            Write-Log "Loaded cache with $($cache.Count) entries" "DEBUG"
+            return $cache
+        }
+        catch {
+            Write-Log "Error loading cache, creating new: $_" "WARNING"
+            return @()
+        }
+    }
+    else {
+        Write-Log "No cache file found, creating new cache" "DEBUG"
+        return @()
+    }
+}
+
+function Save-Cache {
+    param([array]$Cache)
+    
+    try {
+        $Cache | ConvertTo-Json -Depth 10 | Set-Content -Path $Config.CachePath -Encoding UTF8
+        Write-Log "Cache saved with $($Cache.Count) entries" "DEBUG"
+    }
+    catch {
+        Write-Log "Error saving cache: $_" "ERROR"
+    }
+}
+
+function Find-InCache {
+    param(
+        [array]$Cache,
+        [string]$FileHash
+    )
+    
+    foreach ($entry in $Cache) {
+        if ($entry.FileHash -eq $FileHash) {
+            return $entry
+        }
+    }
+    return $null
+}
+
+function Add-ToCache {
+    param(
+        [array]$Cache,
+        [string]$FileName,
+        [string]$FileHash,
+        [PSCustomObject]$ExtractedData,
+        [string]$Category,
+        [PSCustomObject]$Deduction
+    )
+    
+    $cacheEntry = [PSCustomObject]@{
+        FileName = $FileName
+        FileHash = $FileHash
+        ProcessedDate = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
+        ExtractedData = $ExtractedData
+        Category = $Category
+        Deduction = $Deduction
+    }
+    
+    return $Cache + $cacheEntry
+}
+
+function Load-FailedFiles {
+    if (Test-Path $Config.FailedFilesPath) {
+        try {
+            $failedContent = Get-Content -Path $Config.FailedFilesPath -Raw -ErrorAction Stop
+            $failed = $failedContent | ConvertFrom-Json
+            Write-Log "Loaded failed files list with $($failed.Count) entries" "DEBUG"
+            return $failed
+        }
+        catch {
+            Write-Log "Error loading failed files, creating new: $_" "WARNING"
+            return @()
+        }
+    }
+    else {
+        Write-Log "No failed files list found" "DEBUG"
+        return @()
+    }
+}
+
+function Save-FailedFiles {
+    param([array]$FailedFiles)
+    
+    try {
+        $FailedFiles | ConvertTo-Json -Depth 10 | Set-Content -Path $Config.FailedFilesPath -Encoding UTF8
+        Write-Log "Failed files list saved with $($FailedFiles.Count) entries" "DEBUG"
+    }
+    catch {
+        Write-Log "Error saving failed files list: $_" "ERROR"
+    }
+}
+
+function Add-ToFailedFiles {
+    param(
+        [array]$FailedFiles,
+        [string]$FilePath,
+        [string]$FileName,
+        [string]$ErrorReason,
+        [int]$AttemptCount = 1
+    )
+    
+    # Check if file already in failed list
+    $existing = $FailedFiles | Where-Object { $_.FilePath -eq $FilePath }
+    
+    if ($existing) {
+        $existing.AttemptCount = $AttemptCount
+        $existing.LastAttempt = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
+        $existing.ErrorReason = $ErrorReason
+        return $FailedFiles
+    }
+    else {
+        $failedEntry = [PSCustomObject]@{
+            FilePath = $FilePath
+            FileName = $FileName
+            ErrorReason = $ErrorReason
+            AttemptCount = $AttemptCount
+            FirstAttempt = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
+            LastAttempt = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
+        }
+        return $FailedFiles + $failedEntry
+    }
+}
+
+function Remove-FromFailedFiles {
+    param(
+        [array]$FailedFiles,
+        [string]$FilePath
+    )
+    
+    return $FailedFiles | Where-Object { $_.FilePath -ne $FilePath }
+}
+
+function Move-ProcessedFile {
+    param(
+        [string]$SourcePath,
+        [string]$Category,
+        [string]$InvoiceDate
+    )
+    
+    try {
+        # Parse date for folder structure
+        $yearMonth = "Unknown"
+        if ($InvoiceDate -match '^\d{4}-\d{2}') {
+            $yearMonth = $InvoiceDate.Substring(0, 7)  # YYYY-MM
+        }
+        
+        # Create destination folder
+        $destFolder = Join-Path $Config.OutputFolder "$Category\$yearMonth"
+        if (-not (Test-Path $destFolder)) {
+            New-Item -ItemType Directory -Path $destFolder -Force | Out-Null
+        }
+        
+        # Move file
+        $fileName = Split-Path $SourcePath -Leaf
+        $destPath = Join-Path $destFolder $fileName
+        
+        # Handle duplicate filenames
+        $counter = 1
+        while (Test-Path $destPath) {
+            $fileNameWithoutExt = [System.IO.Path]::GetFileNameWithoutExtension($fileName)
+            $fileExt = [System.IO.Path]::GetExtension($fileName)
+            $destPath = Join-Path $destFolder "$fileNameWithoutExt`_$counter$fileExt"
+            $counter++
+        }
+        
+        Move-Item -Path $SourcePath -Destination $destPath -Force
+        Write-Log "Moved file to: $destPath" "DEBUG"
+        return $destPath
+    }
+    catch {
+        Write-Log "Error moving file: $_" "ERROR"
+        return $SourcePath
+    }
 }
 
 # ============================================
@@ -452,14 +660,18 @@ function Extract-TextFromExcel {
                     $text = ""
                     
                     foreach ($worksheetPart in $workbookPart.WorksheetParts) {
-                        $sheetData = $worksheetPart.Worksheet.GetFirstChild[DocumentFormat.OpenXml.Spreadsheet.SheetData]()
-                        foreach ($row in $sheetData.Elements[DocumentFormat.OpenXml.Spreadsheet.Row]()) {
-                            foreach ($cell in $row.Elements[DocumentFormat.OpenXml.Spreadsheet.Cell]()) {
-                                if ($cell.CellValue) {
-                                    $text += "$($cell.CellValue.Text) "
+                        $sheetData = $worksheetPart.Worksheet.Descendants() | Where-Object { $_ -is [DocumentFormat.OpenXml.Spreadsheet.SheetData] } | Select-Object -First 1
+                        if ($sheetData) {
+                            $rows = $sheetData.Descendants() | Where-Object { $_ -is [DocumentFormat.OpenXml.Spreadsheet.Row] }
+                            foreach ($row in $rows) {
+                                $cells = $row.Descendants() | Where-Object { $_ -is [DocumentFormat.OpenXml.Spreadsheet.Cell] }
+                                foreach ($cell in $cells) {
+                                    if ($cell.CellValue) {
+                                        $text += "$($cell.CellValue.Text) "
+                                    }
                                 }
+                                $text += "`n"
                             }
-                            $text += "`n"
                         }
                     }
                     
@@ -791,16 +1003,28 @@ function Get-ExpenseCategory {
     
     $searchText = "$Description $VendorName $LineItemText".ToLower()
     
+    # Enhanced categories with more context-based keywords
     $categories = @{
-        "Electricity" = @("electricity", "energy", "power", "electric", "eora", "ergon", "ausgrid")
-        "Internet" = @("internet", "isp", "broadband", "nbn", "telstra", "optus", "vodafone", "data")
-        "Phone" = @("phone", "mobile", "telco", "mobile plan", "sim")
-        "Software & Subscriptions" = @("software", "license", "subscription", "saas", "ide", "github", "azure", "aws", "jetbrains", "microsoft", "adobe", "npm", "python", "annual", "monthly")
-        "Computer Equipment" = @("computer", "laptop", "monitor", "keyboard", "mouse", "hardware", "dell", "hp", "lenovo", "macbook", "ipad", "tablet", "printer")
-        "Professional Development" = @("training", "course", "udemy", "pluralsight", "education", "conference", "seminar", "masterclass", "workshop")
-        "Professional Membership" = @("association", "membership", "professional", "society", "aca", "ieee", "acm")
-        "Office Supplies" = @("office", "stationery", "supplies", "paper", "pen", "desk", "chair", "filing")
-        "Mobile/Communication" = @("communication", "voip", "skype", "teams", "zoom", "slack")
+        "Food & Groceries" = @("food", "grocery", "groceries", "supermarket", "woolworths", "coles", "aldi", "iga", "restaurant", "cafe", "coffee", "lunch", "dinner", "breakfast", "meal", "catering", "uber eats", "menulog", "deliveroo", "doordash")
+        "Electronics" = @("electronics", "electronic", "jb hi-fi", "jb hifi", "harvey norman", "good guys", "bing lee", "appliance", "tv", "television", "camera", "headphones", "speaker", "audio", "video", "gaming", "console", "playstation", "xbox", "nintendo")
+        "Software & Subscriptions" = @("software", "license", "subscription", "saas", "ide", "github", "azure", "aws", "jetbrains", "microsoft", "adobe", "npm", "python", "annual", "monthly", "cloud", "hosting", "domain", "ssl", "api", "dropbox", "google workspace", "office 365", "slack", "zoom", "notion", "figma", "canva")
+        "Computer Equipment" = @("computer", "laptop", "monitor", "keyboard", "mouse", "hardware", "dell", "hp", "lenovo", "macbook", "ipad", "tablet", "printer", "scanner", "webcam", "microphone", "usb", "cable", "adapter", "dock", "ssd", "hard drive", "ram", "memory")
+        "Electricity" = @("electricity", "energy", "power", "electric", "eora", "ergon", "ausgrid", "energex", "agl", "origin", "red energy", "simply energy", "alinta")
+        "Internet" = @("internet", "isp", "broadband", "nbn", "telstra", "optus", "vodafone", "data", "tpg", "aussie broadband", "superloop", "belong", "wifi", "modem", "router")
+        "Phone & Mobile" = @("phone", "mobile", "telco", "mobile plan", "sim", "smartphone", "iphone", "samsung", "android", "prepaid", "postpaid", "amaysim", "boost", "kogan mobile")
+        "Professional Development" = @("training", "course", "udemy", "pluralsight", "education", "conference", "seminar", "masterclass", "workshop", "certification", "exam", "learning", "tutorial", "bootcamp", "coursera", "linkedin learning", "skillshare")
+        "Professional Membership" = @("association", "membership", "professional", "society", "aca", "ieee", "acm", "annual fee", "registration", "accreditation")
+        "Office Supplies" = @("office", "stationery", "supplies", "paper", "pen", "desk", "chair", "filing", "officeworks", "staples", "notebook", "folder", "binder", "whiteboard", "marker")
+        "Communication Tools" = @("communication", "voip", "skype", "teams", "zoom", "slack", "discord", "webex", "gotomeeting", "conferencing", "video call")
+        "Transportation" = @("transport", "uber", "taxi", "lyft", "didi", "ola", "petrol", "fuel", "gas", "parking", "toll", "car", "vehicle", "automotive", "service", "maintenance", "registration", "insurance")
+        "Clothing & Apparel" = @("clothing", "clothes", "apparel", "shirt", "pants", "shoes", "jacket", "dress", "fashion", "wear", "footwear", "uniqlo", "zara", "h&m", "target", "kmart", "big w")
+        "Health & Medical" = @("health", "medical", "doctor", "pharmacy", "chemist", "medicine", "prescription", "dental", "dentist", "optometry", "glasses", "physiotherapy", "physio", "hospital", "clinic")
+        "Home & Garden" = @("home", "garden", "bunnings", "mitre 10", "hardware", "tools", "paint", "furniture", "ikea", "fantastic furniture", "homeware", "decor", "renovation", "repair")
+        "Entertainment & Media" = @("entertainment", "netflix", "spotify", "disney", "amazon prime", "stan", "binge", "kayo", "foxtel", "streaming", "music", "movie", "cinema", "theatre", "event", "ticket", "concert")
+        "Books & Publications" = @("book", "books", "publication", "magazine", "journal", "kindle", "ebook", "audiobook", "audible", "bookstore", "dymocks", "booktopia", "amazon books")
+        "Insurance" = @("insurance", "policy", "premium", "cover", "coverage", "life insurance", "health insurance", "car insurance", "home insurance", "contents insurance")
+        "Banking & Finance" = @("bank", "banking", "fee", "account fee", "transaction fee", "atm", "interest", "loan", "credit card", "debit card", "financial", "investment")
+        "Utilities & Services" = @("utility", "utilities", "water", "gas", "sewerage", "council", "rates", "waste", "garbage", "bin", "service fee")
     }
     
     foreach ($category in $categories.Keys) {
@@ -945,8 +1169,10 @@ function Export-ToCSV {
     foreach ($invoice in $ProcessedInvoices) {
         $entry = [PSCustomObject]@{
             ProcessDate = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+            ProcessingStatus = if ($invoice.ProcessingStatus) { $invoice.ProcessingStatus } else { "Success" }
             FileName = $invoice.FileName
             FileType = $invoice.FileType
+            FileHash = if ($invoice.FileHash) { $invoice.FileHash } else { "N/A" }
             VendorName = $invoice.Data.vendor_name
             VendorABN = $invoice.Data.vendor_abn
             InvoiceNumber = $invoice.Data.invoice_number
@@ -963,7 +1189,8 @@ function Export-ToCSV {
             ClaimNotes = $invoice.Deduction.ClaimNotes
             ATOReference = $invoice.Deduction.AtoReference
             RequiredDocumentation = $invoice.Deduction.RequiresDocumentation -join "; "
-            FilePath = $invoice.FilePath
+            OriginalPath = $invoice.FilePath
+            MovedTo = if ($invoice.MovedTo) { $invoice.MovedTo } else { "N/A" }
         }
         $catalogEntries += $entry
     }
@@ -1087,7 +1314,7 @@ function Export-ToExcel {
         $detailSheet.Name = "Invoices"
         
         # Headers
-        $headers = @("File", "Date", "Vendor", "Category", "Amount", "Deductible", "Method", "Notes")
+        $headers = @("Status", "File", "Date", "Vendor", "Category", "Amount", "Deductible", "Method", "Moved To")
         for ($i = 0; $i -lt $headers.Count; $i++) {
             $detailSheet.Cells.Item(1, $i + 1) = $headers[$i]
             $detailSheet.Cells.Item(1, $i + 1).Font.Bold = $true
@@ -1097,17 +1324,26 @@ function Export-ToExcel {
         # Data
         $row = 2
         foreach ($entry in $ExportData.CatalogEntries) {
-            $detailSheet.Cells.Item($row, 1) = $entry.FileName
-            $detailSheet.Cells.Item($row, 2) = $entry.InvoiceDate
-            $detailSheet.Cells.Item($row, 3) = $entry.VendorName
-            $detailSheet.Cells.Item($row, 4) = $entry.Category
-            $detailSheet.Cells.Item($row, 5) = $entry.InvoiceTotal
-            $detailSheet.Cells.Item($row, 6) = $entry.DeductibleAmount
-            $detailSheet.Cells.Item($row, 7) = $entry.ClaimMethod
-            $detailSheet.Cells.Item($row, 8) = $entry.ClaimNotes
+            $detailSheet.Cells.Item($row, 1) = $entry.ProcessingStatus
+            $detailSheet.Cells.Item($row, 2) = $entry.FileName
+            $detailSheet.Cells.Item($row, 3) = $entry.InvoiceDate
+            $detailSheet.Cells.Item($row, 4) = $entry.VendorName
+            $detailSheet.Cells.Item($row, 5) = $entry.Category
+            $detailSheet.Cells.Item($row, 6) = $entry.InvoiceTotal
+            $detailSheet.Cells.Item($row, 7) = $entry.DeductibleAmount
+            $detailSheet.Cells.Item($row, 8) = $entry.ClaimMethod
+            $detailSheet.Cells.Item($row, 9) = $entry.MovedTo
             
-            $detailSheet.Cells.Item($row, 5).NumberFormat = "$#,##0.00"
             $detailSheet.Cells.Item($row, 6).NumberFormat = "$#,##0.00"
+            $detailSheet.Cells.Item($row, 7).NumberFormat = "$#,##0.00"
+            
+            # Color code by status
+            if ($entry.ProcessingStatus -match "Failed|Skipped") {
+                $detailSheet.Rows.Item($row).Interior.ColorIndex = 46  # Orange
+            }
+            elseif ($entry.ProcessingStatus -match "Cached") {
+                $detailSheet.Rows.Item($row).Interior.ColorIndex = 34  # Light Blue
+            }
             
             $row++
         }
@@ -1115,6 +1351,38 @@ function Export-ToExcel {
         # Auto-fit columns
         for ($i = 1; $i -le $headers.Count; $i++) {
             $detailSheet.Columns.Item($i).AutoFit() | Out-Null
+        }
+        
+        # Add Failed Files sheet if there are any
+        $failedEntries = $ExportData.CatalogEntries | Where-Object { $_.ProcessingStatus -match "Failed|Skipped" }
+        if ($failedEntries.Count -gt 0) {
+            $failedSheet = $workbook.Sheets.Add()
+            $failedSheet.Name = "Failed Files"
+            
+            # Headers
+            $failedHeaders = @("Status", "File", "Category", "Error/Reason", "File Hash", "Original Path")
+            for ($i = 0; $i -lt $failedHeaders.Count; $i++) {
+                $failedSheet.Cells.Item(1, $i + 1) = $failedHeaders[$i]
+                $failedSheet.Cells.Item(1, $i + 1).Font.Bold = $true
+                $failedSheet.Cells.Item(1, $i + 1).Interior.ColorIndex = 15
+            }
+            
+            # Data
+            $row = 2
+            foreach ($entry in $failedEntries) {
+                $failedSheet.Cells.Item($row, 1) = $entry.ProcessingStatus
+                $failedSheet.Cells.Item($row, 2) = $entry.FileName
+                $failedSheet.Cells.Item($row, 3) = $entry.Category
+                $failedSheet.Cells.Item($row, 4) = $entry.ClaimNotes
+                $failedSheet.Cells.Item($row, 5) = $entry.FileHash
+                $failedSheet.Cells.Item($row, 6) = $entry.OriginalPath
+                $row++
+            }
+            
+            # Auto-fit columns
+            for ($i = 1; $i -le $failedHeaders.Count; $i++) {
+                $failedSheet.Columns.Item($i).AutoFit() | Out-Null
+            }
         }
         
         # Save workbook
@@ -1154,6 +1422,14 @@ function Start-InvoiceProcessing {
     
     Write-Log "" "INFO"
     
+    # Load cache and failed files list
+    $cache = Load-Cache
+    $failedFiles = Load-FailedFiles
+    
+    Write-Log "Cache loaded: $($cache.Count) entries" "INFO"
+    Write-Log "Failed files tracked: $($failedFiles.Count) entries" "INFO"
+    Write-Log "" "INFO"
+    
     # Get invoice files
     $files = Get-InvoiceFiles
     
@@ -1164,17 +1440,110 @@ function Start-InvoiceProcessing {
         return
     }
     
+    # Filter files based on retry mode
+    if ($RetryFailed) {
+        Write-Log "RETRY MODE: Processing only failed files" "INFO"
+        $filesToProcess = @()
+        foreach ($failedEntry in $failedFiles) {
+            $file = $files | Where-Object { $_.FullName -eq $failedEntry.FilePath }
+            if ($file) {
+                $filesToProcess += $file
+            }
+        }
+        $files = $filesToProcess
+        Write-Log "Found $($files.Count) failed files to retry" "INFO"
+    }
+    
     Write-Log "" "INFO"
     
     $processedInvoices = @()
     $successCount = 0
     $failCount = 0
+    $cachedCount = 0
+    $skippedCount = 0
     $fileIndex = 0
     
     # Process files
     foreach ($file in $files) {
         $fileIndex++
         Write-Log "[$fileIndex/$($files.Count)] Processing: $($file.Name)" "INFO"
+        
+        # Calculate file hash for duplicate detection
+        $fileHash = Get-FileHash-MD5 -FilePath $file.FullName
+        
+        if (-not $fileHash) {
+            Write-Log "Could not calculate file hash, skipping file" "ERROR"
+            $failCount++
+            continue
+        }
+        
+        # Check if file is in cache (already processed)
+        $cachedEntry = Find-InCache -Cache $cache -FileHash $fileHash
+        if ($cachedEntry) {
+            Write-Log "DUPLICATE FOUND: File already processed (cached)" "WARNING"
+            Write-Log "Original: $($cachedEntry.FileName) | Processed: $($cachedEntry.ProcessedDate)" "INFO"
+            
+            # Use cached data
+            $processedInvoices += [PSCustomObject]@{
+                FileName = $file.Name
+                FileType = $file.Extension.ToLower()
+                FilePath = $file.FullName
+                ProcessedDateTime = Get-Date
+                Data = $cachedEntry.ExtractedData
+                Category = $cachedEntry.Category
+                Deduction = $cachedEntry.Deduction
+                ProcessingStatus = "Cached (Duplicate)"
+                FileHash = $fileHash
+                MovedTo = "N/A - Duplicate"
+            }
+            
+            $cachedCount++
+            continue
+        }
+        
+        # Check if file has failed too many times
+        $failedEntry = $failedFiles | Where-Object { $_.FilePath -eq $file.FullName }
+        if ($failedEntry -and $failedEntry.AttemptCount -ge $Config.MaxRetryAttempts) {
+            Write-Log "SKIPPED: File has failed $($failedEntry.AttemptCount) times (max: $($Config.MaxRetryAttempts))" "WARNING"
+            
+            # Add to processed list as skipped
+            $processedInvoices += [PSCustomObject]@{
+                FileName = $file.Name
+                FileType = $file.Extension.ToLower()
+                FilePath = $file.FullName
+                ProcessedDateTime = Get-Date
+                Data = [PSCustomObject]@{
+                    vendor_name = "N/A"
+                    vendor_abn = ""
+                    invoice_number = ""
+                    invoice_date = ""
+                    due_date = ""
+                    subtotal = 0.00
+                    tax = 0.00
+                    total = 0.00
+                    currency = "AUD"
+                    description = "Skipped - Too many failures"
+                    line_items = @()
+                }
+                Category = "Failed/Skipped"
+                Deduction = [PSCustomObject]@{
+                    Category = "Failed/Skipped"
+                    TotalAmount = 0.00
+                    WorkUsePercentage = 0
+                    DeductibleAmount = 0.00
+                    ClaimMethod = "Not Applicable"
+                    ClaimNotes = "File skipped after $($failedEntry.AttemptCount) failed attempts"
+                    AtoReference = "N/A"
+                    RequiresDocumentation = @("Manual review required")
+                }
+                ProcessingStatus = "Skipped (Max retries exceeded)"
+                FileHash = $fileHash
+                MovedTo = "N/A - Not moved"
+            }
+            
+            $skippedCount++
+            continue
+        }
 
         try {
             switch ($file.Extension.ToLower()) {
@@ -1198,6 +1567,10 @@ function Start-InvoiceProcessing {
             # Handle files with no extractable text
             if ([string]::IsNullOrWhiteSpace($invoiceText)) {
                 Write-Log "No text extracted - filing as Non-Invoice" "WARNING"
+                
+                $attemptCount = if ($failedEntry) { $failedEntry.AttemptCount + 1 } else { 1 }
+                $failedFiles = Add-ToFailedFiles -FailedFiles $failedFiles -FilePath $file.FullName `
+                    -FileName $file.Name -ErrorReason "No text content extracted" -AttemptCount $attemptCount
                 
                 # Create a placeholder entry for non-invoice files
                 $processedInvoices += [PSCustomObject]@{
@@ -1229,9 +1602,12 @@ function Start-InvoiceProcessing {
                         AtoReference = "N/A"
                         RequiresDocumentation = @("Manual review required")
                     }
+                    ProcessingStatus = "Failed (No text)"
+                    FileHash = $fileHash
+                    MovedTo = "N/A - Not moved"
                 }
                 
-                $successCount++
+                $failCount++
                 continue
             }
 
@@ -1255,21 +1631,46 @@ function Start-InvoiceProcessing {
                     -Category $category `
                     -FilePath $file.FullName
 
+                # Move file to processed folder
+                $movedPath = $file.FullName
+                if ($Config.MoveProcessedFiles) {
+                    $movedPath = Move-ProcessedFile -SourcePath $file.FullName `
+                        -Category $category `
+                        -InvoiceDate $extractedData.invoice_date
+                }
+
                 $processedInvoices += [PSCustomObject]@{
                     FileName = $file.Name
                     FileType = $file.Extension.ToLower()
-                    FilePath = $file.FullName
+                    FilePath = $movedPath
                     ProcessedDateTime = Get-Date
                     Data = $extractedData
                     Category = $category
                     Deduction = $deduction
+                    ProcessingStatus = "Success"
+                    FileHash = $fileHash
+                    MovedTo = $movedPath
+                }
+
+                # Add to cache
+                $cache = Add-ToCache -Cache $cache -FileName $file.Name -FileHash $fileHash `
+                    -ExtractedData $extractedData -Category $category -Deduction $deduction
+
+                # Remove from failed files if it was there
+                if ($failedEntry) {
+                    $failedFiles = Remove-FromFailedFiles -FailedFiles $failedFiles -FilePath $file.FullName
+                    Write-Log "Removed from failed files list (successful retry)" "INFO"
                 }
 
                 Write-Log ([string]::Format("Extracted: {0} - {1} - ${2}", $extractedData.vendor_name, $category, $extractedData.total)) "SUCCESS"
                 $successCount++
             }
             else {
-                Write-Log "Failed to extract data - filing as Non-Invoice" "WARNING"
+                Write-Log "Failed to extract data - adding to failed files" "WARNING"
+                
+                $attemptCount = if ($failedEntry) { $failedEntry.AttemptCount + 1 } else { 1 }
+                $failedFiles = Add-ToFailedFiles -FailedFiles $failedFiles -FilePath $file.FullName `
+                    -FileName $file.Name -ErrorReason "AI extraction failed" -AttemptCount $attemptCount
                 
                 # Create a placeholder entry for failed extractions
                 $processedInvoices += [PSCustomObject]@{
@@ -1301,13 +1702,20 @@ function Start-InvoiceProcessing {
                         AtoReference = "N/A"
                         RequiresDocumentation = @("Manual review required")
                     }
+                    ProcessingStatus = "Failed (AI extraction)"
+                    FileHash = $fileHash
+                    MovedTo = "N/A - Not moved"
                 }
                 
-                $successCount++
+                $failCount++
             }
         }
         catch {
-            Write-Log ("Error processing file: " + $_) "WARNING"
+            Write-Log ("Error processing file: " + $_) "ERROR"
+            
+            $attemptCount = if ($failedEntry) { $failedEntry.AttemptCount + 1 } else { 1 }
+            $failedFiles = Add-ToFailedFiles -FailedFiles $failedFiles -FilePath $file.FullName `
+                -FileName $file.Name -ErrorReason "Processing error: $_" -AttemptCount $attemptCount
             
             # Create a placeholder entry for error cases
             $processedInvoices += [PSCustomObject]@{
@@ -1339,12 +1747,23 @@ function Start-InvoiceProcessing {
                     AtoReference = "N/A"
                     RequiresDocumentation = @("Manual review required")
                 }
+                ProcessingStatus = "Failed (Error)"
+                FileHash = $fileHash
+                MovedTo = "N/A - Not moved"
             }
             
-            $successCount++
+            $failCount++
         }
     }
     
+    Write-Log "" "INFO"
+    
+    # Save cache and failed files
+    Save-Cache -Cache $cache
+    Save-FailedFiles -FailedFiles $failedFiles
+    
+    Write-Log "Cache saved with $($cache.Count) entries" "SUCCESS"
+    Write-Log "Failed files list saved with $($failedFiles.Count) entries" "SUCCESS"
     Write-Log "" "INFO"
     
     # Export results
@@ -1372,10 +1791,16 @@ function Start-InvoiceProcessing {
     Write-Log "" "INFO"
     Write-Log "=== PROCESSING COMPLETE ===" "INFO"
     Write-Log "Successful: $successCount files" "SUCCESS"
-    Write-Log "Failed: $failCount files" $(if ($failCount -eq 0) { "SUCCESS" } else { "ERROR" })
+    Write-Log "Failed: $failCount files" $(if ($failCount -eq 0) { "SUCCESS" } else { "WARNING" })
+    Write-Log "Cached (Duplicates): $cachedCount files" "INFO"
+    Write-Log "Skipped (Max retries): $skippedCount files" $(if ($skippedCount -eq 0) { "SUCCESS" } else { "WARNING" })
     Write-Log "Total processed: $($processedInvoices.Count) invoices" "SUCCESS"
     Write-Log "Time elapsed: $(Get-ElapsedTime $startTime)" "INFO"
     Write-Log "" "INFO"
+    
+    if ($failCount -gt 0) {
+        Write-Log "TIP: Run with -RetryFailed switch to retry failed files" "INFO"
+    }
 }
 
 # ============================================
