@@ -32,8 +32,32 @@
 # CONFIGURATION SECTION
 # ============================================
 param(
-    [switch]$CheckOnly
+    [switch]$CheckOnly,
+    [string]$FinancialYear = "2024-2025"  # Format: YYYY-YYYY (e.g., "2024-2025", "2023-2024")
 )
+
+# Validate Financial Year format
+if ($FinancialYear -notmatch '^\d{4}-\d{4}$') {
+    Write-Host "ERROR: Invalid Financial Year format. Use YYYY-YYYY (e.g., '2024-2025')" -ForegroundColor Red
+    exit 1
+}
+
+# Extract years and validate
+$years = $FinancialYear -split '-'
+$startYear = [int]$years[0]
+$endYear = [int]$years[1]
+
+if ($endYear -ne ($startYear + 1)) {
+    Write-Host "ERROR: Financial Year must be consecutive years (e.g., 2024-2025)" -ForegroundColor Red
+    exit 1
+}
+
+# Construct dynamic paths based on Financial Year
+$BasePath = "G:\My Drive\Tax Invoices"
+$FYFolder = "FY$FinancialYear"
+$InvoiceFolderPath = Join-Path $BasePath $FYFolder
+$OutputFolderPath = Join-Path $InvoiceFolderPath "Processed"
+$LogFolderPath = Join-Path $OutputFolderPath "Logs"
 
 $Config = @{
     # LM Studio Configuration
@@ -46,15 +70,10 @@ $Config = @{
     TesseractPath = "C:\Program Files\Tesseract-OCR\tesseract.exe"
     TesseractLanguage = "eng"
     
-    # Folder Configuration
-    # InvoiceFolder = "G:\My Drive\Tax Invoices\FY2024-2025"  # Old (incorrect)
-    # Use correct folder naming convention: FYYYYY-YYYY
-    # Example for 2024-2025 financial year:
-    InvoiceFolder = "G:\My Drive\Tax Invoices\FY2024-2025"
-    # If your actual folder is named F2024-2025, update as below:
-    # InvoiceFolder = "G:\My Drive\Tax Invoices\F2024-2025"
-    OutputFolder = "G:\My Drive\Tax Invoices\Proccessed"
-    LogFolder = "G:\My Drive\Tax Invoices\Proccessed\Logs"
+    # Folder Configuration (Dynamic based on Financial Year parameter)
+    InvoiceFolder = $InvoiceFolderPath
+    OutputFolder = $OutputFolderPath
+    LogFolder = $LogFolderPath
     
     # File Types to Process
     FileExtensions = @('pdf', 'png', 'jpg', 'jpeg', 'gif', 'doc', 'docx', 'xls', 'xlsx', 'eml')
@@ -64,7 +83,7 @@ $Config = @{
     TotalWorkDays = 5
     WorkUsePercentage = 60  # 3/5 = 60%
     FixedRateHourly = 0.70  # 2024-25 ATO rate
-    FinancialYear = "2024-25"
+    FinancialYear = $FinancialYear
     Occupation = "Web / Software Developer"
     
     # LM Studio Parameters
@@ -123,23 +142,50 @@ function Get-ElapsedTime {
 
 function Test-Environment {
     Write-Log "Running environment checks..." "INFO"
+    Write-Log "Financial Year: $FinancialYear" "INFO"
     $ok = $true
 
     # Invoice folder
     if (-not (Test-Path $Config.InvoiceFolder)) {
         Write-Log "Invoice folder not found: $($Config.InvoiceFolder)" "ERROR"
+        Write-Log "Please create the folder: $($Config.InvoiceFolder)" "ERROR"
         $ok = $false
     }
     else {
         Write-Log "Invoice folder exists: $($Config.InvoiceFolder)" "SUCCESS"
     }
 
-    # Output folder
+    # Output folder - auto-create if needed
     if (-not (Test-Path $Config.OutputFolder)) {
         Write-Log "Output folder not found: $($Config.OutputFolder) - attempting to create" "WARNING"
-        try { New-Item -ItemType Directory -Path $Config.OutputFolder -Force | Out-Null; Write-Log "Created output folder: $($Config.OutputFolder)" "SUCCESS" } catch { Write-Log "Failed to create output folder: $_" "ERROR"; $ok = $false }
+        try { 
+            New-Item -ItemType Directory -Path $Config.OutputFolder -Force | Out-Null
+            Write-Log "Created output folder: $($Config.OutputFolder)" "SUCCESS"
+        } 
+        catch { 
+            Write-Log "Failed to create output folder: $_" "ERROR"
+            $ok = $false 
+        }
     }
-    else { Write-Log "Output folder exists: $($Config.OutputFolder)" "SUCCESS" }
+    else { 
+        Write-Log "Output folder exists: $($Config.OutputFolder)" "SUCCESS" 
+    }
+
+    # Log folder - auto-create if needed
+    if (-not (Test-Path $Config.LogFolder)) {
+        Write-Log "Log folder not found: $($Config.LogFolder) - attempting to create" "WARNING"
+        try { 
+            New-Item -ItemType Directory -Path $Config.LogFolder -Force | Out-Null
+            Write-Log "Created log folder: $($Config.LogFolder)" "SUCCESS"
+        } 
+        catch { 
+            Write-Log "Failed to create log folder: $_" "ERROR"
+            $ok = $false 
+        }
+    }
+    else { 
+        Write-Log "Log folder exists: $($Config.LogFolder)" "SUCCESS" 
+    }
 
     # LM Studio connectivity
     Write-Log "Checking LM Studio connectivity: $($Config.LMStudioModelsEndpoint)" "INFO"
@@ -172,17 +218,38 @@ function Test-Environment {
 
 function Test-Prerequisites {
     Write-Log "=== Checking Prerequisites ===" "INFO"
+    Write-Log "Processing Financial Year: FY$FinancialYear" "INFO"
     
-    # Check folders exist
+    # Check invoice folder exists
     if (-not (Test-Path $Config.InvoiceFolder)) {
         Write-Log "Invoice folder not found: $($Config.InvoiceFolder)" "ERROR"
-        Write-Log "Please create folder and add invoice files." "ERROR"
+        Write-Log "Please create the folder and add invoice files." "ERROR"
+        Write-Log "Example: New-Item -ItemType Directory -Path '$($Config.InvoiceFolder)' -Force" "ERROR"
         return $false
     }
     
+    # Auto-create output folder if needed
     if (-not (Test-Path $Config.OutputFolder)) {
-        New-Item -ItemType Directory -Path $Config.OutputFolder -Force | Out-Null
-        Write-Log "Created output folder: $($Config.OutputFolder)" "SUCCESS"
+        try {
+            New-Item -ItemType Directory -Path $Config.OutputFolder -Force | Out-Null
+            Write-Log "Created output folder: $($Config.OutputFolder)" "SUCCESS"
+        }
+        catch {
+            Write-Log "Failed to create output folder: $_" "ERROR"
+            return $false
+        }
+    }
+    
+    # Auto-create log folder if needed
+    if (-not (Test-Path $Config.LogFolder)) {
+        try {
+            New-Item -ItemType Directory -Path $Config.LogFolder -Force | Out-Null
+            Write-Log "Created log folder: $($Config.LogFolder)" "SUCCESS"
+        }
+        catch {
+            Write-Log "Failed to create log folder: $_" "ERROR"
+            return $false
+        }
     }
     
     # Check LM Studio connectivity
@@ -909,7 +976,8 @@ function Start-InvoiceProcessing {
     
     Write-Log "========================================" "INFO"
     Write-Log "LM STUDIO INVOICE CATALOGING SYSTEM" "INFO"
-    Write-Log "ATO 2024-25 Work Expense Deductions" "INFO"
+    Write-Log "Financial Year: FY$FinancialYear" "INFO"
+    Write-Log "ATO Work Expense Deductions" "INFO"
     Write-Log "========================================" "INFO"
     Write-Log "" "INFO"
     

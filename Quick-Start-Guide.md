@@ -22,46 +22,110 @@
 - Toggle "Enable CORS" to ON
 - Leave LM Studio running
 
-### 4. Create Folder (1 minute)
+### 4. Create Folder Structure (1 minute)
 ```powershell
-mkdir "C:\Invoices\2024-25"
-mkdir "C:\Invoices\Processed"
-mkdir "C:\Scripts"
+# Create folder for current financial year
+New-Item -ItemType Directory -Path "G:\My Drive\Tax Invoices\FY2024-2025" -Force
+
+# The script will auto-create the Processed and Logs folders
 ```
 
-### 5. Copy Script and Config
-- Download: `Invoice-Cataloger-LMStudio.ps1`
-- Save to: `C:\Scripts\`
-- Update file paths in `$Config` section (see below)
+### 5. Copy Script
+- The script is already in your Tax Invoices folder
+- No configuration needed - it uses dynamic paths based on Financial Year
 
 ### 6. Move Invoices
-- Copy all PDF, PNG, JPG files to `C:\Invoices\2024-25\`
+- Copy all PDF, PNG, JPG files to `G:\My Drive\Tax Invoices\FY2024-2025\`
+- Organize by category if desired (optional - script searches recursively)
 
 ### 7. Run Script
 ```powershell
-# Open PowerShell as Administrator
-cd C:\Scripts
+# Open PowerShell
+cd "G:\My Drive\Tax Invoices"
+
+# Process current year (2024-2025)
 .\Invoice-Cataloger-LMStudio.ps1
+
+# Or process a specific year
+.\Invoice-Cataloger-LMStudio.ps1 -FinancialYear "2023-2024"
+```
+
+## Financial Year Support
+
+The script now supports multiple financial years with a simple parameter:
+
+### Process Current Year (Default)
+```powershell
+.\Invoice-Cataloger-LMStudio.ps1
+```
+Processes: `FY2024-2025` folder
+
+### Process Specific Year
+```powershell
+# Process 2023-2024 financial year
+.\Invoice-Cataloger-LMStudio.ps1 -FinancialYear "2023-2024"
+
+# Process 2022-2023 financial year
+.\Invoice-Cataloger-LMStudio.ps1 -FinancialYear "2022-2023"
+```
+
+### Process Multiple Years
+```powershell
+# Process last 3 years
+@("2022-2023", "2023-2024", "2024-2025") | ForEach-Object {
+    Write-Host "`nProcessing FY$_..." -ForegroundColor Cyan
+    .\Invoice-Cataloger-LMStudio.ps1 -FinancialYear $_
+}
+```
+
+## Folder Structure
+
+The script automatically organizes files by financial year:
+
+```
+G:\My Drive\Tax Invoices\
+├── FY2024-2025/                    # Current year
+│   ├── [Your invoice files]        # PDF, PNG, JPG, etc.
+│   └── Processed/                  # Auto-created by script
+│       ├── Logs/                   # Processing logs
+│       ├── Invoice_Catalog_*.csv
+│       ├── Deduction_Summary_*.csv
+│       └── Invoice_Catalog_*.xlsx
+├── FY2023-2024/                    # Previous year
+│   ├── [Invoice files]
+│   └── Processed/
+├── FY2022-2023/                    # Older year
+│   └── ...
+└── Invoice-Cataloger-LMStudio.ps1  # The script
 ```
 
 ## Configuration Quick Reference
 
-Open `Invoice-Cataloger-LMStudio.ps1` and update the `$Config` section:
+The script uses **dynamic configuration** based on the `-FinancialYear` parameter:
 
 ```powershell
+# No manual configuration needed!
+# Just specify the financial year when running:
+
+.\Invoice-Cataloger-LMStudio.ps1 -FinancialYear "2024-2025"
+
+# The script automatically sets:
+# - InvoiceFolder: G:\My Drive\Tax Invoices\FY2024-2025
+# - OutputFolder: G:\My Drive\Tax Invoices\FY2024-2025\Processed
+# - LogFolder: G:\My Drive\Tax Invoices\FY2024-2025\Processed\Logs
+```
+
+### Customize Work Situation (Optional)
+
+If you need to change your work-from-home percentage, edit the script:
+
+```powershell
+# Open Invoice-Cataloger-LMStudio.ps1 and find:
 $Config = @{
-    # These folders must exist
-    InvoiceFolder = "C:\Invoices\2024-25"     # Put invoice files here
-    OutputFolder = "C:\Invoices\Processed"    # Where CSV/Excel created
-    
-    # Leave these at defaults (unless you know what you're doing)
-    LMStudioEndpoint = "http://localhost:1234/v1/chat/completions"
-    
     # Your work situation (CRITICAL FOR ATO COMPLIANCE)
     WorkFromHomeDays = 3        # You work from home 3 days/week
     TotalWorkDays = 5           # Out of 5 working days
     WorkUsePercentage = 60      # Automatically calculated as 3/5 = 60%
-    FinancialYear = "2024-25"
 }
 ```
 
@@ -93,9 +157,11 @@ $Config = @{
 | Problem | Solution |
 |---------|----------|
 | "Cannot connect to LM Studio" | Ensure LM Studio is running and model is loaded |
-| "No files found" | Put invoices in C:\Invoices\2024-25\ (not subfolder) |
+| "Invoice folder not found" | Create folder: `New-Item -ItemType Directory -Path "G:\My Drive\Tax Invoices\FY2024-2025" -Force` |
+| "Invalid Financial Year format" | Use format YYYY-YYYY (e.g., "2024-2025") |
+| "No files found" | Put invoices in FY folder (script searches recursively) |
 | "Model not responding" | Restart LM Studio, close other apps to free RAM |
-| Script won't run | Run PowerShell as Administrator |
+| Script won't run | Run PowerShell (no admin needed for this script) |
 | Tesseract errors | Optional - install from https://github.com/UB-Mannheim/tesseract/wiki |
 
 ## Model Recommendations
@@ -133,6 +199,51 @@ $Config = @{
 - Time records if claiming Fixed Rate Method
 - Bank statements showing payments
 
+## Examples
+
+### Example 1: First Time Setup
+```powershell
+# 1. Create folder for current year
+New-Item -ItemType Directory -Path "G:\My Drive\Tax Invoices\FY2024-2025" -Force
+
+# 2. Copy your invoices into the folder
+
+# 3. Run the script
+cd "G:\My Drive\Tax Invoices"
+.\Invoice-Cataloger-LMStudio.ps1
+
+# Output files created in: FY2024-2025\Processed\
+```
+
+### Example 2: Process Previous Year
+```powershell
+# Process last year's invoices
+.\Invoice-Cataloger-LMStudio.ps1 -FinancialYear "2023-2024"
+
+# Output files created in: FY2023-2024\Processed\
+```
+
+### Example 3: Batch Process Multiple Years
+```powershell
+# Process all years at once
+$years = @("2021-2022", "2022-2023", "2023-2024", "2024-2025")
+
+foreach ($year in $years) {
+    Write-Host "`n=== Processing FY$year ===" -ForegroundColor Green
+    .\Invoice-Cataloger-LMStudio.ps1 -FinancialYear $year
+    Write-Host "Completed FY$year`n" -ForegroundColor Green
+}
+```
+
+### Example 4: Check Environment Only
+```powershell
+# Verify setup without processing files
+.\Invoice-Cataloger-LMStudio.ps1 -CheckOnly
+
+# Or check specific year
+.\Invoice-Cataloger-LMStudio.ps1 -FinancialYear "2023-2024" -CheckOnly
+```
+
 ## Support
 
 **LM Studio Help:**
@@ -146,4 +257,15 @@ $Config = @{
 **PowerShell Help:**
 - Run: `Get-Help about_execution_policies`
 - Or: https://learn.microsoft.com/en-us/powershell/
+
+## Next Steps
+
+After running the script:
+1. Check the `Processed` folder for output files
+2. Review the Excel file (or CSV files)
+3. Verify extracted data is accurate
+4. Keep original invoices for 5 years
+5. Provide files to your accountant
+
+For detailed setup instructions, see [Setup-Guide-LM-Studio.md](Setup-Guide-LM-Studio.md)
 
