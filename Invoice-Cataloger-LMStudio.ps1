@@ -76,7 +76,7 @@ $Config = @{
     LogFolder = $LogFolderPath
     
     # File Types to Process
-    FileExtensions = @('pdf', 'png', 'jpg', 'jpeg', 'gif', 'doc', 'docx', 'xls', 'xlsx', 'eml')
+    FileExtensions = @('pdf', 'png', 'jpg', 'jpeg', 'gif', 'doc', 'docx', 'xls', 'xlsx', 'eml', 'msg')
     
     # ATO Configuration - Software Developer, 3 days WFH
     WorkFromHomeDays = 3
@@ -330,7 +330,8 @@ function Extract-TextFromWord {
         try {
             $word = New-Object -ComObject Word.Application
             $word.Visible = $false
-            $doc = $word.Documents.Open($WordPath, $false, $true)  # ReadOnly = true
+            $word.DisplayAlerts = 0  # Disable alerts
+            $doc = $word.Documents.Open($WordPath, $false, $true, $false)  # ReadOnly = true, AddToRecentFiles = false
             
             # Extract all text content
             $text = $doc.Content.Text
@@ -340,6 +341,8 @@ function Extract-TextFromWord {
             $word.Quit()
             [System.Runtime.Interopservices.Marshal]::ReleaseComObject($doc) | Out-Null
             [System.Runtime.Interopservices.Marshal]::ReleaseComObject($word) | Out-Null
+            [System.GC]::Collect()
+            [System.GC]::WaitForPendingFinalizers()
             
             if ($text -and $text.Trim().Length -gt 0) {
                 Write-Log "Word extraction successful ($($text.Length) chars)" "DEBUG"
@@ -380,6 +383,168 @@ function Extract-TextFromWord {
     }
     catch {
         Write-Log "Error extracting Word text: $_" "ERROR"
+        return $null
+    }
+}
+
+function Extract-TextFromExcel {
+    param([string]$ExcelPath)
+    
+    try {
+        Write-Log "Extracting text from Excel document: $(Split-Path $ExcelPath -Leaf)" "DEBUG"
+        
+        # Try using Excel COM object
+        try {
+            $excel = New-Object -ComObject Excel.Application
+            $excel.Visible = $false
+            $excel.DisplayAlerts = $false
+            $workbook = $excel.Workbooks.Open($ExcelPath, 0, $true)  # ReadOnly = true
+            
+            $text = ""
+            
+            # Extract text from all worksheets
+            foreach ($worksheet in $workbook.Worksheets) {
+                $usedRange = $worksheet.UsedRange
+                if ($usedRange) {
+                    $rows = $usedRange.Rows.Count
+                    $cols = $usedRange.Columns.Count
+                    
+                    for ($row = 1; $row -le $rows; $row++) {
+                        for ($col = 1; $col -le $cols; $col++) {
+                            $cellValue = $usedRange.Cells.Item($row, $col).Text
+                            if ($cellValue) {
+                                $text += "$cellValue "
+                            }
+                        }
+                        $text += "`n"
+                    }
+                }
+            }
+            
+            # Clean up
+            $workbook.Close($false)
+            $excel.Quit()
+            [System.Runtime.Interopservices.Marshal]::ReleaseComObject($workbook) | Out-Null
+            [System.Runtime.Interopservices.Marshal]::ReleaseComObject($excel) | Out-Null
+            [System.GC]::Collect()
+            [System.GC]::WaitForPendingFinalizers()
+            
+            if ($text -and $text.Trim().Length -gt 0) {
+                Write-Log "Excel extraction successful ($($text.Length) chars)" "DEBUG"
+                return $text
+            }
+            else {
+                Write-Log "Excel document appears to be empty" "WARNING"
+                return $null
+            }
+        }
+        catch {
+            Write-Log "Excel COM extraction failed: $_" "WARNING"
+            
+            # Fallback: Try using .NET OpenXML for .xlsx files only
+            if ($ExcelPath -match '\.xlsx$') {
+                try {
+                    Add-Type -AssemblyName DocumentFormat.OpenXml -ErrorAction Stop
+                    Add-Type -AssemblyName System.IO.Packaging -ErrorAction Stop
+                    
+                    $package = [DocumentFormat.OpenXml.Packaging.SpreadsheetDocument]::Open($ExcelPath, $false)
+                    $workbookPart = $package.WorkbookPart
+                    $text = ""
+                    
+                    foreach ($worksheetPart in $workbookPart.WorksheetParts) {
+                        $sheetData = $worksheetPart.Worksheet.GetFirstChild[DocumentFormat.OpenXml.Spreadsheet.SheetData]()
+                        foreach ($row in $sheetData.Elements[DocumentFormat.OpenXml.Spreadsheet.Row]()) {
+                            foreach ($cell in $row.Elements[DocumentFormat.OpenXml.Spreadsheet.Cell]()) {
+                                if ($cell.CellValue) {
+                                    $text += "$($cell.CellValue.Text) "
+                                }
+                            }
+                            $text += "`n"
+                        }
+                    }
+                    
+                    $package.Close()
+                    
+                    if ($text -and $text.Trim().Length -gt 0) {
+                        Write-Log "OpenXML Excel extraction successful ($($text.Length) chars)" "DEBUG"
+                        return $text
+                    }
+                }
+                catch {
+                    Write-Log "OpenXML Excel extraction also failed: $_" "WARNING"
+                }
+            }
+        }
+        
+        Write-Log "Could not extract text from Excel document" "WARNING"
+        return $null
+    }
+    catch {
+        Write-Log "Error extracting Excel text: $_" "ERROR"
+        return $null
+    }
+}
+
+function Extract-TextFromEmail {
+    param([string]$EmailPath)
+    
+    try {
+        Write-Log "Extracting text from email: $(Split-Path $EmailPath -Leaf)" "DEBUG"
+        
+        # Try using Outlook COM object for .msg files
+        if ($EmailPath -match '\.msg$') {
+            try {
+                $outlook = New-Object -ComObject Outlook.Application
+                $mail = $outlook.Session.OpenSharedItem($EmailPath)
+                
+                $text = "From: $($mail.SenderName) <$($mail.SenderEmailAddress)>`n"
+                $text += "To: $($mail.To)`n"
+                $text += "Subject: $($mail.Subject)`n"
+                $text += "Date: $($mail.ReceivedTime)`n`n"
+                $text += $mail.Body
+                
+                # Check for attachments
+                if ($mail.Attachments.Count -gt 0) {
+                    $text += "`n`nAttachments:`n"
+                    foreach ($attachment in $mail.Attachments) {
+                        $text += "- $($attachment.FileName)`n"
+                    }
+                }
+                
+                [System.Runtime.Interopservices.Marshal]::ReleaseComObject($mail) | Out-Null
+                [System.Runtime.Interopservices.Marshal]::ReleaseComObject($outlook) | Out-Null
+                [System.GC]::Collect()
+                [System.GC]::WaitForPendingFinalizers()
+                
+                if ($text -and $text.Trim().Length -gt 0) {
+                    Write-Log "Email extraction successful ($($text.Length) chars)" "DEBUG"
+                    return $text
+                }
+            }
+            catch {
+                Write-Log "Outlook COM extraction failed: $_" "WARNING"
+            }
+        }
+        
+        # Fallback: Try reading as plain text for .eml files
+        if ($EmailPath -match '\.eml$') {
+            try {
+                $text = Get-Content -Path $EmailPath -Raw -Encoding UTF8
+                if ($text -and $text.Trim().Length -gt 0) {
+                    Write-Log "EML text extraction successful ($($text.Length) chars)" "DEBUG"
+                    return $text
+                }
+            }
+            catch {
+                Write-Log "EML text extraction failed: $_" "WARNING"
+            }
+        }
+        
+        Write-Log "Could not extract text from email" "WARNING"
+        return $null
+    }
+    catch {
+        Write-Log "Error extracting email text: $_" "ERROR"
         return $null
     }
 }
@@ -1018,17 +1183,15 @@ function Start-InvoiceProcessing {
                 ".jpg" { $invoiceText = Extract-TextFromImage -ImagePath $file.FullName }
                 ".jpeg" { $invoiceText = Extract-TextFromImage -ImagePath $file.FullName }
                 ".gif" { $invoiceText = Extract-TextFromImage -ImagePath $file.FullName }
-                ".doc" { 
-                    Write-Log "Word documents require manual conversion - filing as Non-Invoice" "WARNING"
-                    $invoiceText = $null  # Will be handled by the no-text-extracted logic below
-                }
-                ".docx" { 
-                    Write-Log "Word documents require manual conversion - filing as Non-Invoice" "WARNING"
-                    $invoiceText = $null  # Will be handled by the no-text-extracted logic below
-                }
+                ".doc" { $invoiceText = Extract-TextFromWord -WordPath $file.FullName }
+                ".docx" { $invoiceText = Extract-TextFromWord -WordPath $file.FullName }
+                ".xls" { $invoiceText = Extract-TextFromExcel -ExcelPath $file.FullName }
+                ".xlsx" { $invoiceText = Extract-TextFromExcel -ExcelPath $file.FullName }
+                ".eml" { $invoiceText = Extract-TextFromEmail -EmailPath $file.FullName }
+                ".msg" { $invoiceText = Extract-TextFromEmail -EmailPath $file.FullName }
                 default {
-                    Write-Log "Unsupported file type - filing as Non-Invoice" "WARNING"
-                    $invoiceText = $null  # Will be handled by the no-text-extracted logic below
+                    Write-Log "Unsupported file type: $($file.Extension) - filing as Non-Invoice" "WARNING"
+                    $invoiceText = $null
                 }
             }
 

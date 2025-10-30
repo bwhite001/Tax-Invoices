@@ -7,7 +7,7 @@ A PowerShell-based invoice cataloging system that uses LM Studio (local AI) to a
 ## 🎯 Features
 
 - **AI-Powered Extraction**: Uses local LLM (Mistral 7B) via LM Studio to extract invoice data
-- **Multi-Format Support**: Processes PDF, images (PNG/JPG), Word docs, Excel files, and emails
+- **Multi-Format Support**: Processes PDF, images (PNG/JPG/GIF), Word docs (DOC/DOCX), Excel files (XLS/XLSX), and emails (EML/MSG)
 - **OCR Integration**: Built-in Windows OCR + optional Tesseract for scanned documents
 - **ATO Compliance**: Automatic deduction calculations following 2024-25 ATO guidelines
 - **Multi-Year Support**: Process invoices for different financial years with ease
@@ -57,7 +57,11 @@ Tax Invoices/
 New-Item -ItemType Directory -Path "G:\My Drive\Tax Invoices\FY2024-2025" -Force
 
 # Copy your invoice files into this folder
-# Supported: PDF, PNG, JPG, JPEG, GIF, DOC, DOCX, XLS, XLSX, EML
+# Supported formats:
+# - Documents: PDF, DOC, DOCX
+# - Images: PNG, JPG, JPEG, GIF
+# - Spreadsheets: XLS, XLSX
+# - Emails: EML, MSG
 ```
 
 ### 4. Run the Script
@@ -238,8 +242,23 @@ New-Item -ItemType Directory -Path "G:\My Drive\Tax Invoices\FY2024-2025" -Force
 - **Language**: PowerShell 5.1+
 - **AI Engine**: LM Studio (local LLM inference)
 - **Recommended Model**: Mistral 7B Instruct v0.2
-- **OCR**: Windows 10+ built-in OCR + optional Tesseract
+- **OCR**: Windows 10+ built-in OCR + optional Tesseract for scanned documents
+- **Document Processing**: 
+  - Word/Excel: COM automation + OpenXML fallback
+  - Email: Outlook COM for MSG + plain text for EML
+  - PDF: Tesseract OCR or Poppler tools
+  - Images: Windows OCR or Tesseract
 - **Export**: CSV + Excel (via COM automation)
+
+## 📄 Supported File Formats
+
+| Format | Extension | Extraction Method | Notes |
+|--------|-----------|-------------------|-------|
+| **PDF Documents** | .pdf | Tesseract OCR / Poppler | Best with text-based PDFs |
+| **Word Documents** | .doc, .docx | Word COM / OpenXML | Requires Word installed (COM) or .NET OpenXML |
+| **Excel Spreadsheets** | .xls, .xlsx | Excel COM / OpenXML | Extracts all worksheet data |
+| **Email Messages** | .eml, .msg | Outlook COM / Plain text | Includes headers, body, and attachment list |
+| **Images** | .png, .jpg, .jpeg, .gif | Windows OCR / Tesseract | OCR for scanned invoices |
 
 ## 📝 License
 
