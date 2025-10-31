@@ -1,11 +1,20 @@
 """
 Expense Categorization for ATO Compliance
 """
-from typing import Dict, Any
+from typing import Dict, Any, List, Optional
 
 
 class ExpenseCategorizer:
     """Categorize expenses based on vendor, description, and line items"""
+    
+    def __init__(self, vendor_overrides: Optional[List[Dict[str, Any]]] = None):
+        """
+        Initialize categorizer with optional vendor overrides
+        
+        Args:
+            vendor_overrides: List of vendor override rules
+        """
+        self.vendor_overrides = vendor_overrides or []
     
     # Enhanced categories with comprehensive keywords
     CATEGORIES = {
@@ -127,6 +136,13 @@ class ExpenseCategorizer:
         Returns:
             Category name
         """
+        # STEP 1: Check vendor overrides first (highest priority)
+        if self.vendor_overrides and vendor_name:
+            override_category = self._check_vendor_override(vendor_name)
+            if override_category:
+                return override_category
+        
+        # STEP 2: Use keyword-based categorization
         # Combine all text for searching
         search_text = f"{vendor_name} {description}"
         
@@ -144,6 +160,32 @@ class ExpenseCategorizer:
                     return category
         
         return "Other"
+    
+    def _check_vendor_override(self, vendor_name: str) -> Optional[str]:
+        """
+        Check if vendor matches any override rules
+        
+        Args:
+            vendor_name: Vendor/supplier name
+        
+        Returns:
+            Category name if override found, None otherwise
+        """
+        if not vendor_name:
+            return None
+        
+        vendor_lower = vendor_name.lower()
+        
+        # Check each override rule
+        for override in self.vendor_overrides:
+            pattern = override.get('vendor_pattern', '').lower()
+            category = override.get('category', '')
+            
+            # Case-insensitive partial match
+            if pattern and pattern in vendor_lower:
+                return category
+        
+        return None
     
     @staticmethod
     def get_all_categories() -> list:

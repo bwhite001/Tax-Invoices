@@ -65,7 +65,11 @@ class InvoiceCataloger:
             retry_delay=config.retry_delay_seconds
         )
         
-        self.categorizer = ExpenseCategorizer()
+        # Load vendor overrides and initialize categorizer
+        vendor_overrides_data = config.load_vendor_overrides()
+        self.categorizer = ExpenseCategorizer(
+            vendor_overrides=vendor_overrides_data.get('overrides', [])
+        )
         self.deduction_calculator = DeductionCalculator(
             work_use_percentage=config.work_use_percentage,
             fixed_rate_hourly=config.fixed_rate_hourly

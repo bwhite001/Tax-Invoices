@@ -1,0 +1,124 @@
+{
+  "_comment": "Vendor Override Configuration - Define specific categories for vendors",
+  "_instructions": [
+    "Add vendor patterns and their fixed categories here",
+    "Vendor matching is case-insensitive and supports partial matches",
+    "The first matching vendor override will be used",
+    "Categories must match existing ATO categories"
+  ],
+  "overrides": [
+    {
+      "vendor_pattern": "superloop",
+      "category": "Internet",
+      "notes": "Internet and NBN services",
+      "enabled": true
+    },
+    {
+      "vendor_pattern": "amaysim",
+      "category": "Phone & Mobile",
+      "notes": "Mobile phone services",
+      "enabled": true
+    },
+    {
+      "vendor_pattern": "agl",
+      "category": "Electricity",
+      "notes": "Power/electricity bills",
+      "enabled": true
+    },
+    {
+      "vendor_pattern": "ampol",
+      "category": "Electricity",
+      "notes": "Power/electricity bills (Ampol Energy)",
+      "enabled": true
+    },
+    {
+      "vendor_pattern": "telstra",
+      "category": "Internet",
+      "notes": "Internet and telecommunications",
+      "enabled": true
+    },
+    {
+      "vendor_pattern": "optus",
+      "category": "Internet",
+      "notes": "Internet and telecommunications",
+      "enabled": true
+    },
+    {
+      "vendor_pattern": "origin energy",
+      "category": "Electricity",
+      "notes": "Power/electricity bills",
+      "enabled": true
+    },
+    {
+      "vendor_pattern": "energex",
+      "category": "Electricity",
+      "notes": "Power/electricity bills",
+      "enabled": true
+    },
+    {
+      "vendor_pattern": "ergon",
+      "category": "Electricity",
+      "notes": "Power/electricity bills",
+      "enabled": true
+    },
+    {
+      "vendor_pattern": "jetbrains",
+      "category": "Software & Subscriptions",
+      "notes": "IDE licenses and subscriptions",
+      "enabled": true
+    },
+    {
+      "vendor_pattern": "github",
+      "category": "Software & Subscriptions",
+      "notes": "GitHub subscriptions",
+      "enabled": true
+    },
+    {
+      "vendor_pattern": "microsoft",
+      "category": "Software & Subscriptions",
+      "notes": "Microsoft software and services",
+      "enabled": true
+    },
+    {
+      "vendor_pattern": "adobe",
+      "category": "Software & Subscriptions",
+      "notes": "Adobe Creative Cloud",
+      "enabled": true
+    },
+    {
+      "vendor_pattern": "aws",
+      "category": "Software & Subscriptions",
+      "notes": "Amazon Web Services",
+      "enabled": true
+    },
+    {
+      "vendor_pattern": "amazon web services",
+      "category": "Software & Subscriptions",
+      "notes": "Amazon Web Services",
+      "enabled": true
+    }
+  ],
+  "available_categories": [
+    "Food & Groceries",
+    "Electronics",
+    "Software & Subscriptions",
+    "Computer Equipment",
+    "Electricity",
+    "Internet",
+    "Phone & Mobile",
+    "Professional Development",
+    "Professional Membership",
+    "Office Supplies",
+    "Communication Tools",
+    "Transportation",
+    "Clothing & Apparel",
+    "Health & Medical",
+    "Home & Garden",
+    "Entertainment & Media",
+    "Books & Publications",
+    "Insurance",
+    "Banking & Finance",
+    "Utilities & Services",
+    "Other"
+  ]
+}

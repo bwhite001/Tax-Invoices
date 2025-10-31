@@ -105,6 +105,33 @@ class Config:
         """Get failed files tracking path"""
         return self.output_folder / "failed_files.json"
     
+    @property
+    def vendor_overrides_path(self) -> Path:
+        """Get vendor overrides configuration path"""
+        # Look for vendor_overrides.json in the invoice_cataloger directory
+        script_dir = Path(__file__).parent
+        return script_dir / "vendor_overrides.json"
+    
+    def load_vendor_overrides(self) -> dict:
+        """Load vendor override configuration"""
+        try:
+            if self.vendor_overrides_path.exists():
+                with open(self.vendor_overrides_path, 'r') as f:
+                    data = json.load(f)
+                    # Filter only enabled overrides
+                    enabled_overrides = [
+                        override for override in data.get('overrides', [])
+                        if override.get('enabled', True)
+                    ]
+                    return {
+                        'overrides': enabled_overrides,
+                        'available_categories': data.get('available_categories', [])
+                    }
+            return {'overrides': [], 'available_categories': []}
+        except Exception as e:
+            print(f"Warning: Could not load vendor overrides: {e}")
+            return {'overrides': [], 'available_categories': []}
+    
     def validate_financial_year(self) -> bool:
         """Validate financial year format (YYYY-YYYY)"""
         if not self.financial_year or '-' not in self.financial_year:
