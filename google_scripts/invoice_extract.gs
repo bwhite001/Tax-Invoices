@@ -2,7 +2,8 @@
  * Invoice Email Extractor for Tax Purposes
  * Extracts emails with invoice-related attachments, organizes by Australian Financial Year,
  * and logs each extracted invoice to a Google Sheet.
- * MODIFIED: Now marks processed threads as read, applies FY-specific Gmail labels, and archives them.
+ * MODIFIED: Now extracts hidden .eml attachments, marks processed threads as read, 
+ * applies FY-specific Gmail labels, and archives them.
  */
 
 // ===== CONFIGURATION =====
@@ -13,7 +14,6 @@ const CONFIG = {
   maxEmailsPerRun: 50,
   allowedFileTypes: ['pdf', 'png', 'jpg', 'jpeg', 'gif', 'doc', 'docx', 'xls', 'xlsx', 'eml'],
   spreadsheetName: 'Extracted Invoices Log',
-  // Prefix for FY-specific Gmail labels (e.g., "Tax FY2024-2025")
   fyLabelPrefix: 'Tax FY'
 };
 
@@ -26,6 +26,7 @@ function extractInvoiceAttachments() {
 
     const processedLabel = getOrCreateLabel(CONFIG.processedLabelName);
     const parentFolder = getOrCreateFolder(CONFIG.parentFolderName);
+    const accessToken = ScriptApp.getOAuthToken();
 
     const searchQuery = buildSearchQuery();
     Logger.log('Search query: ' + searchQuery);
@@ -38,18 +39,18 @@ function extractInvoiceAttachments() {
     for (let i = 0; i < threads.length; i++) {
       const thread = threads[i];
       const messages = thread.getMessages();
-      let hasAttachments = false; // Track if thread has any attachments
+      let hasAttachments = false;
 
       for (let j = 0; j < messages.length; j++) {
         const message = messages[j];
+        const emailDate = message.getDate();
+        const fyFolder = getOrCreateFYFolder(parentFolder, emailDate);
+        
+        // Process regular attachments
         const attachments = message.getAttachments();
-
         if (attachments.length > 0) {
           hasAttachments = true;
-          const emailDate = message.getDate();
-          // Subject/sender could be used for logging
           Logger.log('Processing email: ' + message.getSubject());
-          const fyFolder = getOrCreateFYFolder(parentFolder, emailDate);
 
           for (let k = 0; k < attachments.length; k++) {
             const attachment = attachments[k];
@@ -58,25 +59,29 @@ function extractInvoiceAttachments() {
               totalAttachmentsSaved++;
             }
           }
+        }
+        
+        // ALSO check for hidden .eml attachments via MIME parsing
+        const emlCount = extractHiddenEMLAttachments(message, fyFolder, emailDate, accessToken);
+        if (emlCount > 0) {
+          hasAttachments = true;
+          totalAttachmentsSaved += emlCount;
+          Logger.log('Extracted ' + emlCount + ' hidden .eml attachment(s)');
+        }
 
+        if (hasAttachments) {
           totalEmailsProcessed++;
         }
       }
 
-      // Only apply labels, mark as read, and archive if the thread had attachments
+      // Apply labels and archive if thread had attachments
       if (hasAttachments) {
         thread.addLabel(processedLabel);
-        
-        // Calculate FY from the first message's date and apply FY label
         const firstMessageDate = messages[0].getDate();
         const fyName = getFinancialYear(firstMessageDate);
         const fyLabel = getOrCreateFYLabel(fyName);
         thread.addLabel(fyLabel);
-        
-        // Mark the thread as read
         thread.markRead();
-        
-        // NEW: Archive the thread to remove it from the inbox
         thread.moveToArchive();
       }
     }
@@ -94,8 +99,112 @@ function extractInvoiceAttachments() {
 }
 
 /**
+ * Extract hidden .eml attachments that don't show up in getAttachments()
+ * These are typically forwarded emails with message/rfc822 MIME type
+ * Returns the number of .eml files extracted
+ */
+function extractHiddenEMLAttachments(message, folder, emailDate, accessToken) {
+  try {
+    const messageId = message.getId();
+    
+    // Get raw MIME via Gmail API
+    const url = 'https://gmail.googleapis.com/gmail/v1/users/me/messages/' + messageId + '?format=raw';
+    const response = UrlFetchApp.fetch(url, {
+      headers: { 'Authorization': 'Bearer ' + accessToken },
+      muteHttpExceptions: true
+    });
+    
+    if (response.getResponseCode() !== 200) {
+      return 0;
+    }
+    
+    const data = JSON.parse(response.getContentText());
+    
+    // Decode URL-safe base64
+    let rawBase64 = data.raw.replace(/-/g, '+').replace(/_/g, '/');
+    while (rawBase64.length % 4 !== 0) { rawBase64 += '='; }
+    
+    const rawBytes = Utilities.base64Decode(rawBase64);
+    const rawContent = Utilities.newBlob(rawBytes).getDataAsString();
+    
+    // Parse MIME for .eml attachments
+    const emlAttachments = extractEMLAttachmentsFromMIME(rawContent);
+    
+    if (emlAttachments.length === 0) {
+      return 0;
+    }
+    
+    // Save each .eml file
+    const sender = extractEmailAddress(message.getFrom());
+    const dateStr = Utilities.formatDate(emailDate, Session.getScriptTimeZone(), 'yyyy-MM-dd');
+    
+    for (let i = 0; i < emlAttachments.length; i++) {
+      const emlData = emlAttachments[i];
+      const fileName = dateStr + '_' + sender + '_forwarded_' + (i + 1) + '.eml';
+      
+      // Check if already exists
+      const existingFiles = folder.getFilesByName(fileName);
+      if (existingFiles.hasNext()) {
+        Logger.log('Hidden .eml already exists, skipping: ' + fileName);
+        continue;
+      }
+      
+      const file = folder.createFile(fileName, emlData, 'message/rfc822');
+      file.setDescription('Extracted hidden .eml from: ' + message.getFrom() + '\nSubject: ' + message.getSubject());
+      
+      logExtractedInvoice(emailDate, sender, message.getSubject(), 'forwarded_email.eml', 'eml', fileName);
+      Logger.log('Saved hidden .eml: ' + fileName);
+    }
+    
+    return emlAttachments.length;
+    
+  } catch (e) {
+    Logger.log('Error extracting hidden .eml: ' + e.toString());
+    return 0;
+  }
+}
+
+/**
+ * Parse MIME content to extract message/rfc822 attachments
+ * These are emails that were forwarded as attachments
+ */
+function extractEMLAttachmentsFromMIME(mimeContent) {
+  const attachments = [];
+  const boundaryMatch = mimeContent.match(/boundary="([^"]+)"/);
+  
+  if (!boundaryMatch) {
+    return attachments;
+  }
+  
+  const boundary = boundaryMatch[1];
+  const parts = mimeContent.split('--' + boundary);
+  
+  for (let i = 0; i < parts.length; i++) {
+    const part = parts[i];
+    
+    // Look for message/rfc822 attachments
+    if (part.includes('Content-Type: message/rfc822') && 
+        part.includes('Content-Disposition: attachment')) {
+      
+      // Extract content after headers (after blank line)
+      const headerEndIndex = part.indexOf('\r\n\r\n');
+      if (headerEndIndex > -1) {
+        const nestedEmail = part.substring(headerEndIndex + 4).trim();
+        const cleanedEmail = nestedEmail.replace(/--[^\r\n]*$/, '').trim();
+        
+        // Sanity check - emails are usually >500 bytes
+        if (cleanedEmail.length > 500) {
+          attachments.push(cleanedEmail);
+        }
+      }
+    }
+  }
+  
+  return attachments;
+}
+
+/**
  * Get or create Gmail label for a specific FY
- * NEW: Helper to create/retrieve FY-specific labels (e.g., "Tax FY2024-2025")
  */
 function getOrCreateFYLabel(fyName) {
   const labelName = CONFIG.fyLabelPrefix + fyName;
@@ -103,12 +212,11 @@ function getOrCreateFYLabel(fyName) {
 }
 
 /**
- * Build Gmail search query based on keywords and tax period (last July 1)
+ * Build Gmail search query based on keywords and tax period
  */
 function buildSearchQuery() {
   let query = 'has:attachment ';
 
-  // Add keyword search (subject or body)
   const keywordQuery = CONFIG.searchKeywords.map(keyword =>
     '(subject:"' + keyword + '" OR "' + keyword + '")'
   ).join(' OR ');
@@ -116,7 +224,6 @@ function buildSearchQuery() {
   query += '(' + keywordQuery + ') ';
   query += '-label:' + CONFIG.processedLabelName + ' ';
 
-  // Only "after:" July 1 of last full tax period (could be current or previous)
   const afterDate = getTaxPeriodStart();
   const afterStr = Utilities.formatDate(afterDate, Session.getScriptTimeZone(), 'yyyy/MM/dd');
   query += 'after:' + afterStr;
@@ -125,18 +232,16 @@ function buildSearchQuery() {
 }
 
 /**
- * Get start date of the most recent July 1 tax period (e.g. July 1, 2024 if today is after July 1, 2025)
+ * Get start date of the most recent July 1 tax period
  */
 function getTaxPeriodStart() {
   const now = new Date();
-  const year = now.getFullYear()-1;
-  const month = now.getMonth(); // 0=Jan, 6=July
+  const year = now.getFullYear() - 1;
+  const month = now.getMonth();
 
-  // If we are after July (new FY has started this year), use this July
-  // If not yet July, use July last year
   return (month >= 6)
-    ? new Date(year, 6, 1)    // July 1st current year
-    : new Date(year - 1, 6, 1); // July 1st last year
+    ? new Date(year, 6, 1)
+    : new Date(year - 1, 6, 1);
 }
 
 /**
@@ -174,9 +279,9 @@ function getFinancialYear(date) {
   const year = date.getFullYear();
   const month = date.getMonth();
   if (month >= 6) {
-    return 'FY' + year + '-' + (year + 1);
+    return year + '-' + (year + 1);
   } else {
-    return 'FY' + (year - 1) + '-' + year;
+    return (year - 1) + '-' + year;
   }
 }
 
@@ -194,7 +299,7 @@ function isAllowedFileType(attachment) {
   return CONFIG.allowedFileTypes.includes(fileExtension);
 }
 
-// ===== Logging Section (unchanged) =====
+// ===== Logging Section =====
 
 function getOrCreateLogSheet() {
   const files = DriveApp.getFilesByName(CONFIG.spreadsheetName);

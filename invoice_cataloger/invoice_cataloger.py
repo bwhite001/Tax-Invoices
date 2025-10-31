@@ -792,6 +792,23 @@ def main():
         action='store_true',
         help='Enable verbose (DEBUG) logging'
     )
+    parser.add_argument(
+        '--catalog-only',
+        action='store_true',
+        help='Only catalog invoices, skip tax calculations (Phase 4)'
+    )
+    parser.add_argument(
+        '--tax-strategy',
+        type=str,
+        default='ato',
+        choices=['ato', 'custom'],
+        help='Tax calculation strategy (default: ato) (Phase 4)'
+    )
+    parser.add_argument(
+        '--wfh-log',
+        type=str,
+        help='Path to WFH log file for dynamic work-use percentage (Phase 4)'
+    )
     
     args = parser.parse_args()
     

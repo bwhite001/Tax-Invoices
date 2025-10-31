@@ -80,6 +80,12 @@ class Config:
     # Logging
     log_level: str = "INFO"  # DEBUG, INFO, WARNING, ERROR
     
+    # Tax Configuration (Phase 4)
+    tax_strategy: str = field(default_factory=lambda: os.getenv("TAX_STRATEGY", "ato"))
+    tax_rules_path: Optional[Path] = None
+    wfh_log_path: Optional[Path] = None
+    catalog_only_mode: bool = False
+    
     @property
     def invoice_folder(self) -> Path:
         """Get invoice folder path for current financial year"""
