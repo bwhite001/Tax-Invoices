@@ -1,21 +1,76 @@
 
 ╔════════════════════════════════════════════════════════════════╗
-║   BANK STATEMENT EXTRACTOR & EXPENSE CATALOGER - USER GUIDE   ║
-║              For Australian Financial Institutions              ║
+║     BANK STATEMENT PROCESSING SYSTEM - USER GUIDE v2.0         ║
+║              Updated October 2025 - Current Workflow            ║
 ╚════════════════════════════════════════════════════════════════╝
+
+⚠️  NOTE: This is legacy documentation for reference.
+    For current workflow, see: QUICKSTART.md
 
 TABLE OF CONTENTS
 ═════════════════
-1. Quick Start Guide
-2. Downloading Statements from Each Bank
-3. Running the Scripts
+1. Current Workflow (Zip Money) - NEW
+2. Quick Start Guide - UPDATED
+3. Legacy Multi-Bank Support
 4. Understanding the Output
 5. Tips & Best Practices
 6. Troubleshooting
 
 
 ═══════════════════════════════════════════════════════════════════
-1. QUICK START GUIDE
+1. CURRENT WORKFLOW (ZIP MONEY) - VERSION 2.0
+═══════════════════════════════════════════════════════════════════
+
+⭐ RECOMMENDED: See QUICKSTART.md for detailed step-by-step guide
+
+PREREQUISITES:
+   - Python 3.8+ installed
+   - Run: pip install pandas openpyxl pdfplumber PyPDF2
+   - Java NOT required for current workflow
+
+6-STEP AUTOMATED WORKFLOW:
+
+STEP 1: Prepare Files
+   Command: python bankstatements/prepare_files.py
+   - Copies PDFs from Statements/FY2024-2025/
+   - Adds "zip_" prefix for auto-detection
+   - Creates temp_processing folder
+
+STEP 2: Extract Transactions
+   Command: python bankstatements/zip_money_extractor.py
+   - Parses PDF text using pdfplumber
+   - Extracts dates, descriptions, amounts
+   - Outputs to: bankstatements/extracted/zip_transactions.csv
+
+STEP 3: Remove Duplicates
+   Command: python bankstatements/remove_duplicates.py
+   - Identifies and removes duplicate transactions
+   - Updates zip_transactions.csv
+
+STEP 4: Catalog & Categorize
+   Command: python bankstatements/run_cataloger.py
+   - Consolidates all transactions
+   - Auto-categorizes into 9 categories
+   - Generates multiple output formats
+
+STEP 5: Fix Categorization
+   Command: python bankstatements/fix_categorization.py
+   - Corrects Income/Expense types
+   - Improves category assignments
+   - Updates expense_catalog.csv
+
+STEP 6: Organize Outputs
+   Command: python bankstatements/organize_outputs.py
+   - Moves files to FY-specific directory
+   - Creates timestamped folder
+   - Generates processing metadata
+
+RESULT:
+   All files organized in:
+   FY2024-2025/Processed/BankStatements/ZipMoney_YYYYMMDD_HHMMSS/
+
+═══════════════════════════════════════════════════════════════════
+2. QUICK START GUIDE - UPDATED
 ═══════════════════════════════════════════════════════════════════
 
 STEP 1: Install Python (if not already installed)
@@ -23,30 +78,33 @@ STEP 1: Install Python (if not already installed)
    - Choose Python 3.8 or higher
    - ✓ During installation, check "Add Python to PATH"
 
-STEP 2: Install Java (required for PDF processing)
-   - Download from: https://www.java.com/download/
-   - Verify installation: Open Command Prompt and type: java -version
-
-STEP 3: Install Required Packages
+STEP 2: Install Required Packages
    - Open Command Prompt in the script folder
    - Run: pip install -r requirements.txt
-   - Or use quick_start.bat for automated setup
+   - Note: Java NOT required for Zip Money workflow
 
-STEP 4: Download Your Bank Statements
-   - See Section 2 for specific instructions per bank
-   - Save files to the 'statements' folder
+STEP 3: Place Your Statements
+   - Put PDF statements in: Statements/FY2024-2025/
+   - Any file naming works (numbered or monthly)
 
-STEP 5: Run the Extractor
-   - Command: python bank_statement_extractor.py
-   - Follow the prompts
+STEP 4: Run All 6 Scripts
+   - See Section 1 for complete workflow
+   - Or follow QUICKSTART.md for detailed instructions
 
-STEP 6: Run the Cataloger
-   - Command: python expense_cataloger.py
-   - View results in the 'extracted' folder
+STEP 5: Review Outputs
+   - Check: FY2024-2025/Processed/BankStatements/
+   - Open expense_catalog.xlsx for summary
+   - Review PROCESSING_SUMMARY.md for details
 
 
 ═══════════════════════════════════════════════════════════════════
-2. DOWNLOADING STATEMENTS FROM EACH BANK
+3. LEGACY MULTI-BANK SUPPORT (For Reference)
+═══════════════════════════════════════════════════════════════════
+
+⚠️  NOTE: The following information is for legacy bank_statement_extractor.py
+    Current workflow focuses on Zip Money with custom parser.
+
+DOWNLOADING STATEMENTS FROM EACH BANK
 ═══════════════════════════════════════════════════════════════════
 
 ┌───────────────────────────────────────────────────────────────┐
