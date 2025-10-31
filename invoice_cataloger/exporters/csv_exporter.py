@@ -2,7 +2,7 @@
 CSV Export for Invoice Catalog
 """
 from pathlib import Path
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from datetime import datetime
 import csv
 
@@ -14,7 +14,7 @@ class CSVExporter:
         self.output_folder = Path(output_folder)
         self.output_folder.mkdir(parents=True, exist_ok=True)
     
-    def export(self, processed_invoices: List[Dict[str, Any]]) -> tuple[Path, Path]:
+    def export(self, processed_invoices: List[Dict[str, Any]]) -> tuple[Path, Path, Optional[Path]]:
         """
         Export processed invoices to CSV files
         
@@ -22,7 +22,7 @@ class CSVExporter:
             processed_invoices: List of processed invoice data
         
         Returns:
-            Tuple of (catalog_path, summary_path)
+            Tuple of (catalog_path, summary_path, manual_review_path)
         """
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         
@@ -32,7 +32,10 @@ class CSVExporter:
         # Export summary
         summary_path = self._export_summary(processed_invoices, timestamp)
         
-        return catalog_path, summary_path
+        # Export manual review list (if any)
+        manual_review_path = self._export_manual_review(processed_invoices, timestamp)
+        
+        return catalog_path, summary_path, manual_review_path
     
     def _export_catalog(self, processed_invoices: List[Dict[str, Any]], 
                        timestamp: str) -> Path:
@@ -44,7 +47,8 @@ class CSVExporter:
             'VendorName', 'VendorABN', 'InvoiceNumber', 'InvoiceDate', 'DueDate',
             'Category', 'Currency', 'SubTotal', 'Tax', 'InvoiceTotal',
             'WorkUsePercentage', 'DeductibleAmount', 'ClaimMethod', 'ClaimNotes',
-            'ATOReference', 'RequiredDocumentation', 'OriginalPath', 'MovedTo'
+            'ATOReference', 'RequiredDocumentation', 'OriginalPath', 'MovedTo',
+            'NeedsManualReview', 'MissingFields'
         ]
         
         with open(catalog_path, 'w', newline='', encoding='utf-8') as f:
@@ -75,7 +79,9 @@ class CSVExporter:
                     'ATOReference': inv.get('AtoReference', ''),
                     'RequiredDocumentation': '; '.join(inv.get('RequiresDocumentation', [])),
                     'OriginalPath': inv.get('OriginalPath', inv.get('FilePath', '')),
-                    'MovedTo': inv.get('MovedTo', '')
+                    'MovedTo': inv.get('MovedTo', ''),
+                    'NeedsManualReview': 'Yes' if inv.get('NeedsManualReview', False) else 'No',
+                    'MissingFields': '; '.join(inv.get('MissingFields', []))
                 }
                 writer.writerow(row)
         
@@ -127,3 +133,40 @@ class CSVExporter:
                 })
         
         return summary_path
+    
+    def _export_manual_review(self, processed_invoices: List[Dict[str, Any]], 
+                              timestamp: str) -> Optional[Path]:
+        """Export manual review required CSV"""
+        # Filter invoices needing manual review
+        manual_review_invoices = [
+            inv for inv in processed_invoices 
+            if inv.get('NeedsManualReview', False)
+        ]
+        
+        if not manual_review_invoices:
+            return None
+        
+        manual_review_path = self.output_folder / f"Manual_Review_Required_{timestamp}.csv"
+        
+        fieldnames = [
+            'FileName', 'VendorName', 'InvoiceDate', 'TotalAmount',
+            'Category', 'MissingFields', 'FilePath', 'ProcessingStatus'
+        ]
+        
+        with open(manual_review_path, 'w', newline='', encoding='utf-8') as f:
+            writer = csv.DictWriter(f, fieldnames=fieldnames)
+            writer.writeheader()
+            
+            for inv in manual_review_invoices:
+                writer.writerow({
+                    'FileName': inv.get('FileName', ''),
+                    'VendorName': inv.get('VendorName', 'N/A'),
+                    'InvoiceDate': inv.get('InvoiceDate', ''),
+                    'TotalAmount': inv.get('TotalAmount', 0.00),
+                    'Category': inv.get('Category', ''),
+                    'MissingFields': '; '.join(inv.get('MissingFields', [])),
+                    'FilePath': inv.get('FilePath', ''),
+                    'ProcessingStatus': inv.get('ProcessingStatus', 'Unknown')
+                })
+        
+        return manual_review_path

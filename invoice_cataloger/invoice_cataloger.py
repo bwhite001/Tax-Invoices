@@ -262,7 +262,7 @@ class InvoiceCataloger:
             return file_path
     
     def process_file(self, file_path: Path, file_index: int, 
-                    total_files: int) -> Optional[Dict[str, Any]]:
+                    total_files: int, reprocess: bool = False) -> Optional[Dict[str, Any]]:
         """Process a single invoice file"""
         self.logger.progress(file_index, total_files, f"Processing: {file_path.name}")
         
@@ -272,8 +272,8 @@ class InvoiceCataloger:
             self.logger.error("Could not calculate file hash")
             return None
         
-        # Check cache
-        cached_entry = self.cache_manager.find_by_hash(file_hash)
+        # Check cache (skip if reprocess mode)
+        cached_entry = None if reprocess else self.cache_manager.find_by_hash(file_hash)
         if cached_entry:
             self.logger.warning("DUPLICATE FOUND: File already processed (cached)")
             self.logger.info(f"Original: {cached_entry['FileName']} | Processed: {cached_entry['ProcessedDate']}")
@@ -302,7 +302,9 @@ class InvoiceCataloger:
                 'RequiresDocumentation': cached_entry['Deduction'].get('RequiresDocumentation', []),
                 'ProcessingStatus': 'Cached (Duplicate)',
                 'FileHash': file_hash,
-                'MovedTo': 'N/A - Duplicate'
+                'MovedTo': 'N/A - Duplicate',
+                'NeedsManualReview': False,
+                'MissingFields': []
             }
         
         # Check if file has failed too many times
@@ -334,6 +336,43 @@ class InvoiceCataloger:
             
             self.logger.debug(f"Text extracted using {method} ({len(text)} chars)")
             
+            # Check if file is a non-invoice (logo, signature, etc.)
+            is_non_invoice, non_invoice_reason = self._is_non_invoice(None, text)
+            if is_non_invoice:
+                self.logger.warning(f"NON-INVOICE DETECTED: {non_invoice_reason}")
+                
+                # Move to Non-Invoice folder
+                moved_path = self.move_non_invoice(file_path)
+                
+                return {
+                    'FileName': file_path.name,
+                    'FileType': file_path.suffix.lower(),
+                    'FilePath': str(moved_path),
+                    'OriginalPath': str(file_path),
+                    'ProcessedDateTime': datetime.now(),
+                    'VendorName': 'N/A',
+                    'VendorABN': '',
+                    'InvoiceNumber': '',
+                    'InvoiceDate': '',
+                    'DueDate': '',
+                    'SubTotal': 0.00,
+                    'Tax': 0.00,
+                    'TotalAmount': 0.00,
+                    'Currency': 'AUD',
+                    'Category': 'Non-Invoice',
+                    'WorkUsePercentage': 0,
+                    'DeductibleAmount': 0.00,
+                    'ClaimMethod': 'Not Applicable',
+                    'ClaimNotes': non_invoice_reason,
+                    'AtoReference': 'N/A',
+                    'RequiresDocumentation': [],
+                    'ProcessingStatus': 'Non-Invoice',
+                    'FileHash': file_hash,
+                    'MovedTo': str(moved_path),
+                    'NeedsManualReview': False,
+                    'MissingFields': []
+                }
+            
             # Extract data using LLM
             extracted_data = self.llm_processor.extract_invoice_data(text, file_path.name)
             
@@ -351,6 +390,9 @@ class InvoiceCataloger:
                                                 "AI extraction failed",
                                                 "Failed (AI extraction)")
             
+            # Check for missing critical fields
+            needs_manual_review, missing_fields = self._check_missing_fields(extracted_data)
+            
             # Categorize expense
             category = self.categorizer.categorize(
                 extracted_data.get('vendor_name', ''),
@@ -362,6 +404,10 @@ class InvoiceCataloger:
             deduction = self.deduction_calculator.calculate_deduction(
                 extracted_data, category
             )
+            
+            # Log if manual review needed
+            if needs_manual_review:
+                self.logger.warning(f"NEEDS MANUAL REVIEW: Missing fields: {', '.join(missing_fields)}")
             
             # Move file
             moved_path = self.move_processed_file(
@@ -404,7 +450,9 @@ class InvoiceCataloger:
                 'RequiresDocumentation': deduction['RequiresDocumentation'],
                 'ProcessingStatus': 'Success',
                 'FileHash': file_hash,
-                'MovedTo': str(moved_path)
+                'MovedTo': str(moved_path),
+                'NeedsManualReview': needs_manual_review,
+                'MissingFields': missing_fields
             }
             
         except Exception as e:
@@ -448,10 +496,142 @@ class InvoiceCataloger:
             'RequiresDocumentation': ['Manual review required'],
             'ProcessingStatus': status,
             'FileHash': file_hash,
-            'MovedTo': 'N/A - Not moved'
+            'MovedTo': 'N/A - Not moved',
+            'NeedsManualReview': True,
+            'MissingFields': []
         }
     
-    def run(self, retry_failed: bool = False):
+    def _is_non_invoice(self, extracted_data: Optional[Dict[str, Any]], text: str) -> tuple[bool, str]:
+        """
+        Determine if file is a non-invoice (logo, signature, etc.)
+        
+        Returns:
+            (is_non_invoice, reason)
+        """
+        # Check if extraction failed completely
+        if not extracted_data:
+            if len(text.strip()) < 50:
+                return True, "Too little text content (likely logo/signature)"
+            return False, ""
+        
+        # Check for critical missing fields
+        vendor = extracted_data.get('vendor_name', '').strip()
+        total = extracted_data.get('total', 0.0)
+        
+        # If no vendor and no amount, likely not an invoice
+        if not vendor and total == 0.0:
+            return True, "No vendor name and no amount (likely non-invoice image)"
+        
+        return False, ""
+    
+    def _check_missing_fields(self, extracted_data: Dict[str, Any]) -> tuple[bool, List[str]]:
+        """
+        Check for missing critical fields
+        
+        Returns:
+            (needs_review, list_of_missing_fields)
+        """
+        missing_fields = []
+        
+        # Critical fields
+        if not extracted_data.get('vendor_name', '').strip():
+            missing_fields.append('Vendor Name')
+        
+        if not extracted_data.get('invoice_date', '').strip():
+            missing_fields.append('Invoice Date')
+        
+        if extracted_data.get('total', 0.0) == 0.0:
+            missing_fields.append('Total Amount')
+        
+        # Bonus field (not critical but noted)
+        if not extracted_data.get('invoice_number', '').strip():
+            missing_fields.append('Invoice Number (bonus)')
+        
+        needs_review = len([f for f in missing_fields if '(bonus)' not in f]) > 0
+        
+        return needs_review, missing_fields
+    
+    def move_non_invoice(self, file_path: Path) -> Path:
+        """Move non-invoice file to Non-Invoice folder"""
+        try:
+            non_invoice_folder = self.config.output_folder / "Non-Invoice"
+            non_invoice_folder.mkdir(parents=True, exist_ok=True)
+            
+            dest_path = non_invoice_folder / file_path.name
+            
+            # Handle duplicate filenames
+            counter = 1
+            while dest_path.exists():
+                stem = file_path.stem
+                dest_path = non_invoice_folder / f"{stem}_{counter}{file_path.suffix}"
+                counter += 1
+            
+            file_path.rename(dest_path)
+            self.logger.info(f"Moved non-invoice to: {dest_path}")
+            return dest_path
+        except Exception as e:
+            self.logger.error(f"Error moving non-invoice file: {e}")
+            return file_path
+    
+    def cleanup_non_invoices(self, dry_run: bool = True) -> tuple[int, int]:
+        """
+        Clean up non-invoice files from the Non-Invoice folder
+        
+        Args:
+            dry_run: If True, only show what would be deleted without actually deleting
+        
+        Returns:
+            Tuple of (files_found, files_deleted)
+        """
+        non_invoice_folder = self.config.output_folder / "Non-Invoice"
+        
+        if not non_invoice_folder.exists():
+            self.logger.warning(f"Non-Invoice folder does not exist: {non_invoice_folder}")
+            return 0, 0
+        
+        # Get all files in Non-Invoice folder
+        files = []
+        for ext in self.config.file_extensions:
+            files.extend(non_invoice_folder.rglob(f"*{ext}"))
+        
+        if not files:
+            self.logger.info("No files found in Non-Invoice folder")
+            return 0, 0
+        
+        self.logger.section("NON-INVOICE CLEANUP")
+        self.logger.info(f"Found {len(files)} file(s) in Non-Invoice folder")
+        
+        if dry_run:
+            self.logger.info("\n=== DRY RUN MODE - No files will be deleted ===\n")
+        
+        # Show files to be deleted
+        self.logger.info("Files to be deleted:")
+        for i, file_path in enumerate(files, 1):
+            file_size = file_path.stat().st_size / 1024  # KB
+            self.logger.info(f"  {i}. {file_path.name} ({file_size:.2f} KB)")
+        
+        if dry_run:
+            self.logger.info("\nTo actually delete these files, run with --cleanup-non-invoices (without --dry-run)")
+            return len(files), 0
+        
+        # Confirm deletion
+        self.logger.warning(f"\nAbout to delete {len(files)} file(s) from Non-Invoice folder")
+        self.logger.warning("This action cannot be undone!")
+        
+        # Delete files
+        deleted_count = 0
+        for file_path in files:
+            try:
+                file_path.unlink()
+                deleted_count += 1
+                self.logger.success(f"Deleted: {file_path.name}")
+            except Exception as e:
+                self.logger.error(f"Failed to delete {file_path.name}: {e}")
+        
+        self.logger.success(f"\nDeleted {deleted_count} out of {len(files)} file(s)")
+        return len(files), deleted_count
+    
+    def run(self, retry_failed: bool = False, reprocess: bool = False):
         """Main processing loop"""
         start_time = datetime.now()
         
@@ -484,11 +664,16 @@ class InvoiceCataloger:
         fail_count = 0
         cached_count = 0
         skipped_count = 0
+        non_invoice_count = 0
+        manual_review_count = 0
         
         self.logger.section("PROCESSING INVOICES")
         
+        if reprocess:
+            self.logger.info("REPROCESS MODE: Ignoring cache for all files")
+        
         for i, file_path in enumerate(files, 1):
-            result = self.process_file(file_path, i, len(files))
+            result = self.process_file(file_path, i, len(files), reprocess=reprocess)
             
             if result:
                 processed_invoices.append(result)
@@ -496,12 +681,18 @@ class InvoiceCataloger:
                 status = result['ProcessingStatus']
                 if status == 'Success':
                     success_count += 1
+                elif status == 'Non-Invoice':
+                    non_invoice_count += 1
                 elif 'Cached' in status:
                     cached_count += 1
                 elif 'Skipped' in status:
                     skipped_count += 1
                 else:
                     fail_count += 1
+                
+                # Track manual review needed
+                if result.get('NeedsManualReview', False):
+                    manual_review_count += 1
         
         # Save cache and failed files
         self.cache_manager.save()
@@ -515,9 +706,11 @@ class InvoiceCataloger:
             self.logger.section("EXPORTING RESULTS")
             
             # Export CSV
-            catalog_path, summary_path = self.csv_exporter.export(processed_invoices)
+            catalog_path, summary_path, manual_review_path = self.csv_exporter.export(processed_invoices)
             self.logger.success(f"CSV catalog: {catalog_path}")
             self.logger.success(f"CSV summary: {summary_path}")
+            if manual_review_path:
+                self.logger.success(f"Manual review list: {manual_review_path}")
             
             # Export Excel
             try:
@@ -534,6 +727,8 @@ class InvoiceCataloger:
         
         self.logger.section("PROCESSING COMPLETE")
         self.logger.success(f"Successful: {success_count} files")
+        if non_invoice_count > 0:
+            self.logger.info(f"Non-Invoices: {non_invoice_count} files (moved to Non-Invoice folder)")
         if fail_count > 0:
             self.logger.warning(f"Failed: {fail_count} files")
         else:
@@ -543,11 +738,17 @@ class InvoiceCataloger:
             self.logger.warning(f"Skipped (Max retries): {skipped_count} files")
         else:
             self.logger.success(f"Skipped (Max retries): {skipped_count} files")
+        if manual_review_count > 0:
+            self.logger.warning(f"Manual Review Required: {manual_review_count} files (missing critical fields)")
+        else:
+            self.logger.success(f"Manual Review Required: {manual_review_count} files")
         self.logger.success(f"Total processed: {len(processed_invoices)} invoices")
         self.logger.info(f"Time elapsed: {elapsed}")
         
         if fail_count > 0:
             self.logger.info("\nTIP: Run with --retry-failed to retry failed files")
+        if manual_review_count > 0:
+            self.logger.info("TIP: Check Manual_Review_Required.csv for files needing attention")
 
 
 def main():
@@ -565,6 +766,21 @@ def main():
         '--retry-failed',
         action='store_true',
         help='Retry only failed files'
+    )
+    parser.add_argument(
+        '--reprocess',
+        action='store_true',
+        help='Reprocess all files, ignoring cache (useful for testing changes)'
+    )
+    parser.add_argument(
+        '--cleanup-non-invoices',
+        action='store_true',
+        help='Clean up files in the Non-Invoice folder'
+    )
+    parser.add_argument(
+        '--dry-run',
+        action='store_true',
+        help='Preview cleanup without actually deleting files (use with --cleanup-non-invoices)'
     )
     parser.add_argument(
         '--check-only',
@@ -599,9 +815,24 @@ def main():
             print("\n✗ Prerequisites check failed")
             sys.exit(1)
     
+    # Cleanup non-invoices mode
+    if args.cleanup_non_invoices:
+        try:
+            files_found, files_deleted = cataloger.cleanup_non_invoices(dry_run=args.dry_run)
+            if args.dry_run:
+                print(f"\n✓ Dry run complete: {files_found} file(s) would be deleted")
+            else:
+                print(f"\n✓ Cleanup complete: {files_deleted} out of {files_found} file(s) deleted")
+            sys.exit(0)
+        except Exception as e:
+            print(f"\n✗ Cleanup failed: {e}")
+            import traceback
+            traceback.print_exc()
+            sys.exit(1)
+    
     # Run processing
     try:
-        cataloger.run(retry_failed=args.retry_failed)
+        cataloger.run(retry_failed=args.retry_failed, reprocess=args.reprocess)
     except KeyboardInterrupt:
         print("\n\nProcessing interrupted by user")
         sys.exit(1)
