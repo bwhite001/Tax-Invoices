@@ -1,0 +1,140 @@
+{
+  "strategy_name": "ATO",
+  "description": "Australian Taxation Office work-related expense deduction rules for Software Developers",
+  "version": "2024-2025",
+  "categories": {
+    "Electricity": {
+      "claim_method": "Actual Cost Method",
+      "work_use_applicable": true,
+      "threshold": null,
+      "depreciation_years": null,
+      "ato_reference": "Working from Home Expenses",
+      "claim_notes": "Alternative: Fixed Rate Method at $0.67/hour requires time records",
+      "required_documentation": [
+        "Original invoice",
+        "Usage records"
+      ]
+    },
+    "Internet": {
+      "claim_method": "Actual Cost Method",
+      "work_use_applicable": true,
+      "threshold": null,
+      "depreciation_years": null,
+      "ato_reference": "Home Phone and Internet Expenses",
+      "claim_notes": "NOT claimable if using Fixed Rate Method",
+      "required_documentation": [
+        "Invoice with breakdown",
+        "Evidence of work use"
+      ]
+    },
+    "Phone & Mobile": {
+      "claim_method": "Actual Cost Method",
+      "work_use_applicable": true,
+      "threshold": null,
+      "depreciation_years": null,
+      "ato_reference": "Home Phone and Internet Expenses",
+      "claim_notes": "Must have itemized bills showing work calls",
+      "required_documentation": [
+        "Itemized phone bill",
+        "Call log analysis"
+      ]
+    },
+    "Software & Subscriptions": {
+      "claim_method": "Immediate or Depreciation",
+      "work_use_applicable": true,
+      "threshold": 300,
+      "depreciation_years": 2,
+      "ato_reference": "Computers, Laptops and Software",
+      "claim_notes": "Under $300: Immediate deduction. Over $300: Depreciation required (typically 2-3 years)",
+      "required_documentation": [
+        "Invoice",
+        "Evidence of work-related use"
+      ]
+    },
+    "Computer Equipment": {
+      "claim_method": "Immediate or Depreciation",
+      "work_use_applicable": true,
+      "threshold": 300,
+      "depreciation_years": 3,
+      "ato_reference": "Depreciation - Assets over $300",
+      "claim_notes": "Under $300: Immediate deduction. Over $300: Typical effective life 2-4 years",
+      "required_documentation": [
+        "Invoice",
+        "Purchase receipt",
+        "Depreciation calculation"
+      ]
+    },
+    "Professional Development": {
+      "claim_method": "Full Deduction",
+      "work_use_applicable": false,
+      "threshold": null,
+      "depreciation_years": null,
+      "ato_reference": "Training and Education",
+      "claim_notes": "Must directly relate to current employment and improve current skills",
+      "required_documentation": [
+        "Course invoice",
+        "Evidence of course content",
+        "Relevance to role"
+      ]
+    },
+    "Professional Membership": {
+      "claim_method": "Full Deduction",
+      "work_use_applicable": false,
+      "threshold": null,
+      "depreciation_years": null,
+      "ato_reference": "Professional Memberships and Accreditations",
+      "claim_notes": "Must be relevant to your IT profession",
+      "required_documentation": [
+        "Invoice",
+        "Membership certificate"
+      ]
+    },
+    "Office Supplies": {
+      "claim_method": "Actual Cost Method OR Fixed Rate",
+      "work_use_applicable": true,
+      "threshold": null,
+      "depreciation_years": null,
+      "ato_reference": "Home Office Expenses",
+      "claim_notes": "Covered by Fixed Rate Method if using that approach",
+      "required_documentation": [
+        "Invoice",
+        "Usage records"
+      ]
+    },
+    "Communication Tools": {
+      "claim_method": "Actual Cost Method",
+      "work_use_applicable": true,
+      "threshold": null,
+      "depreciation_years": null,
+      "ato_reference": "Home Phone and Internet Expenses",
+      "claim_notes": "Must be used for work purposes",
+      "required_documentation": [
+        "Invoice",
+        "Usage analysis"
+      ]
+    },
+    "Other": {
+      "claim_method": "Manual Review Required",
+      "work_use_applicable": true,
+      "threshold": null,
+      "depreciation_years": null,
+      "ato_reference": "Other Operating Expenses",
+      "claim_notes": "Consult tax professional to determine deductibility",
+      "required_documentation": [
+        "Full documentation",
+        "Professional advice"
+      ]
+    }
+  },
+  "fixed_rate_method": {
+    "rate_per_hour": 0.67,
+    "description": "Simplified method covering electricity, gas, internet, phone, stationery",
+    "requires_time_records": true,
+    "excludes": [
+      "Computer equipment",
+      "Software",
+      "Professional development",
+      "Professional memberships"
+    ]
+  }
+}
