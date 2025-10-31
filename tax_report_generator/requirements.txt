@@ -1,0 +1,8 @@
+# Tax Report Generator Requirements
+
+# Core dependencies
+pandas>=1.5.0
+openpyxl>=3.0.0
+
+# Optional dependencies for enhanced functionality
+python-dateutil>=2.8.0
